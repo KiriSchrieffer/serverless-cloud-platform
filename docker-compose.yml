@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: serverless
+      POSTGRES_USER: serverless
+      POSTGRES_PASSWORD: serverless
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: .env.example
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./storage:/app/storage
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    env_file: .env.example
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./storage:/app/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "serverless-cloud-platform"
+version = "0.1.0"
+description = "Educational Lambda-inspired serverless cloud platform"
+requires-python = ">=3.11"
+dependencies = [
+  "asyncpg",
+  "fastapi",
+  "passlib[bcrypt]",
+  "pydantic-settings",
+  "python-jose[cryptography]",
+  "python-multipart",
+  "redis",
+  "sqlalchemy",
+  "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+worker = ["docker"]
+test = ["httpx", "pytest", "pytest-asyncio"]
+dev = ["ruff", "mypy"]
+
+[tool.setuptools.packages.find]
+include = ["backend*", "worker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
