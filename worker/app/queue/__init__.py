@@ -1,0 +1,1 @@
+"""Redis Streams consumer code."""
