@@ -11,6 +11,13 @@ class InvocationStatus(StrEnum):
     CANCELED = "CANCELED"
 
 
+class InvocationAttemptStatus(StrEnum):
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    TIMEOUT = "TIMEOUT"
+
+
 class WorkerStatus(StrEnum):
     IDLE = "IDLE"
     RUNNING = "RUNNING"

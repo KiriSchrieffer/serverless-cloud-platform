@@ -1,6 +1,12 @@
 # Database Migrations
 
-Alembic migration files should live here once the SQLAlchemy models are added.
+Alembic migration files live here.
+
+Run migrations after PostgreSQL is available:
+
+```bash
+alembic upgrade head
+```
 
 Initial schema targets:
 
