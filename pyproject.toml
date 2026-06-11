@@ -11,6 +11,7 @@ dependencies = [
   "alembic",
   "asyncpg",
   "fastapi",
+  "greenlet",
   "passlib[bcrypt]",
   "pydantic-settings",
   "python-jose[cryptography]",
@@ -22,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 worker = ["docker"]
-test = ["httpx", "pytest", "pytest-asyncio"]
+test = ["aiosqlite", "httpx", "pytest", "pytest-asyncio"]
 dev = ["ruff", "mypy"]
 
 [tool.setuptools.packages.find]
