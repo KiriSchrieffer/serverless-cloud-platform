@@ -9,6 +9,16 @@ from backend.app.api.dependencies import get_db_session
 from backend.app.main import create_app
 from backend.app.models import Base
 
+VERSION_PAYLOAD = {
+    "runtime": "python3.11",
+    "handler": "main.handler",
+    "package_uri": "storage/packages/hello/v1/function.zip",
+    "package_hash": "0123456789abcdef0123456789abcdef",
+    "memory_limit_mb": 256,
+    "cpu_limit": 0.5,
+    "timeout_seconds": 30,
+}
+
 
 @pytest.fixture()
 async def test_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
@@ -101,5 +111,89 @@ async def test_function_names_are_scoped_per_owner(api_client: AsyncClient) -> N
 @pytest.mark.asyncio
 async def test_create_function_validates_name(api_client: AsyncClient) -> None:
     response = await api_client.post("/functions", json={"name": "123 invalid"})
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_and_list_function_versions(api_client: AsyncClient) -> None:
+    await api_client.post("/functions", json={"name": "hello"})
+
+    first_response = await api_client.post("/functions/hello/versions", json=VERSION_PAYLOAD)
+    second_response = await api_client.post(
+        "/functions/hello/versions",
+        json={
+            **VERSION_PAYLOAD,
+            "package_uri": "storage/packages/hello/v2/function.zip",
+            "package_hash": "abcdef0123456789abcdef0123456789",
+            "memory_limit_mb": 512,
+            "timeout_seconds": 45,
+        },
+    )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    assert first_response.json()["version_number"] == 1
+    assert second_response.json()["version_number"] == 2
+    assert second_response.json()["memory_limit_mb"] == 512
+    assert second_response.json()["timeout_seconds"] == 45
+
+    list_response = await api_client.get("/functions/hello/versions")
+
+    assert list_response.status_code == 200
+    assert [item["version_number"] for item in list_response.json()] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_function_versions_are_scoped_per_owner(api_client: AsyncClient) -> None:
+    first_owner = "10000000-0000-0000-0000-000000000001"
+    second_owner = "20000000-0000-0000-0000-000000000001"
+
+    await api_client.post(
+        "/functions",
+        headers={"X-Owner-Id": first_owner},
+        json={"name": "hello"},
+    )
+    first_version = await api_client.post(
+        "/functions/hello/versions",
+        headers={"X-Owner-Id": first_owner},
+        json=VERSION_PAYLOAD,
+    )
+    second_owner_version = await api_client.post(
+        "/functions/hello/versions",
+        headers={"X-Owner-Id": second_owner},
+        json=VERSION_PAYLOAD,
+    )
+
+    assert first_version.status_code == 201
+    assert second_owner_version.status_code == 404
+    assert second_owner_version.json()["detail"] == "Function 'hello' not found"
+
+
+@pytest.mark.asyncio
+async def test_list_function_versions_returns_404_for_missing_function(
+    api_client: AsyncClient,
+) -> None:
+    response = await api_client.get("/functions/missing/versions")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Function 'missing' not found"
+
+
+@pytest.mark.asyncio
+async def test_create_function_version_validates_runtime_and_limits(
+    api_client: AsyncClient,
+) -> None:
+    await api_client.post("/functions", json={"name": "hello"})
+
+    response = await api_client.post(
+        "/functions/hello/versions",
+        json={
+            **VERSION_PAYLOAD,
+            "runtime": "nodejs20",
+            "memory_limit_mb": 32,
+            "timeout_seconds": 0,
+        },
+    )
 
     assert response.status_code == 422
