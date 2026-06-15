@@ -6,6 +6,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import AsyncSessionLocal
+from backend.app.services.invocations import InvocationService
 from backend.app.services.function_registry import FunctionRegistryService
 
 DEVELOPMENT_OWNER_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -39,3 +40,9 @@ def get_function_registry_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> FunctionRegistryService:
     return FunctionRegistryService(session)
+
+
+def get_invocation_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> InvocationService:
+    return InvocationService(session)

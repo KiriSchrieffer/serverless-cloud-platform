@@ -3,7 +3,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from backend.app.api.dependencies import get_current_user_id, get_function_registry_service
+from backend.app.api.dependencies import (
+    get_current_user_id,
+    get_function_registry_service,
+    get_invocation_service,
+)
+from backend.app.schemas.invocation import InvocationAccepted, InvocationCreate
 from backend.app.schemas.function import (
     FunctionCreate,
     FunctionRead,
@@ -16,6 +21,7 @@ from backend.app.services.function_registry import (
     FunctionRegistryService,
     FunctionVersionConflictError,
 )
+from backend.app.services.invocations import FunctionVersionNotFoundError, InvocationService
 
 router = APIRouter()
 
@@ -93,6 +99,39 @@ async def list_function_versions(
         ) from exc
 
 
-@router.post("/{function_name}/invoke")
-async def invoke_function(function_name: str) -> None:
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED)
+@router.post(
+    "/{function_name}/invoke",
+    response_model=InvocationAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def invoke_function(
+    function_name: str,
+    payload: InvocationCreate,
+    owner_id: Annotated[UUID, Depends(get_current_user_id)],
+    invocations: Annotated[InvocationService, Depends(get_invocation_service)],
+) -> InvocationAccepted:
+    try:
+        invocation = await invocations.create_invocation(
+            owner_id=owner_id,
+            function_name=function_name,
+            payload=payload.payload,
+            idempotency_key=payload.idempotency_key,
+            version_number=payload.version_number,
+        )
+    except FunctionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Function '{exc.name}' not found",
+        ) from exc
+    except FunctionVersionNotFoundError as exc:
+        if exc.version_number is None:
+            detail = f"Function '{exc.function_name}' has no versions"
+        else:
+            detail = f"Function '{exc.function_name}' version {exc.version_number} not found"
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail) from exc
+
+    return InvocationAccepted(
+        invocation_id=invocation.id,
+        status=invocation.status,
+        status_url=f"/invocations/{invocation.id}",
+    )
