@@ -7,9 +7,30 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from backend.app.api.dependencies import get_db_session
+from backend.app.api.dependencies import get_db_session, get_invocation_queue_publisher
 from backend.app.main import create_app
 from backend.app.models import Base
+from backend.app.models.invocation import Invocation
+from backend.app.services.invocation_queue import (
+    InvocationQueuePublishError,
+    build_invocation_message_fields,
+)
+
+
+class FakeInvocationQueuePublisher:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, str]] = []
+        self.fail_next = False
+
+    async def publish_invocation(self, invocation: Invocation) -> str:
+        fields = build_invocation_message_fields(invocation)
+        if self.fail_next:
+            self.fail_next = False
+            self.messages.append(fields)
+            raise InvocationQueuePublishError(fields["invocation_id"])
+
+        self.messages.append(fields)
+        return f"fake-{len(self.messages)}"
 
 
 @pytest.fixture()
@@ -29,8 +50,14 @@ async def test_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]
 
 
 @pytest.fixture()
+def fake_invocation_queue_publisher() -> FakeInvocationQueuePublisher:
+    return FakeInvocationQueuePublisher()
+
+
+@pytest.fixture()
 async def api_client(
     test_sessionmaker: async_sessionmaker[AsyncSession],
+    fake_invocation_queue_publisher: FakeInvocationQueuePublisher,
 ) -> AsyncIterator[AsyncClient]:
     app = create_app()
 
@@ -39,6 +66,9 @@ async def api_client(
             yield session
 
     app.dependency_overrides[get_db_session] = override_db_session
+    app.dependency_overrides[get_invocation_queue_publisher] = (
+        lambda: fake_invocation_queue_publisher
+    )
 
     async with AsyncClient(
         transport=ASGITransport(app=app),

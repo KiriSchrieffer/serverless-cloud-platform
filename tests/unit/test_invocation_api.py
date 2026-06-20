@@ -34,6 +34,7 @@ async def create_function_version(
 @pytest.mark.asyncio
 async def test_invoke_function_creates_queued_invocation_for_latest_version(
     api_client: AsyncClient,
+    fake_invocation_queue_publisher,
 ) -> None:
     await create_function(api_client)
     await create_function_version(api_client)
@@ -63,6 +64,17 @@ async def test_invoke_function_creates_queued_invocation_for_latest_version(
     assert invocation["function_version_id"] == latest_version["id"]
     assert invocation["attempt_count"] == 0
 
+    assert len(fake_invocation_queue_publisher.messages) == 1
+    message = fake_invocation_queue_publisher.messages[0]
+    assert message == {
+        "invocation_id": accepted["invocation_id"],
+        "function_version_id": latest_version["id"],
+        "owner_id": "00000000-0000-0000-0000-000000000001",
+        "attempt_number": "1",
+        "queued_at": invocation["queued_at"],
+        "deadline_at": invocation["deadline_at"],
+    }
+
 
 @pytest.mark.asyncio
 async def test_invoke_function_can_target_specific_version(api_client: AsyncClient) -> None:
@@ -88,7 +100,10 @@ async def test_invoke_function_can_target_specific_version(api_client: AsyncClie
 
 
 @pytest.mark.asyncio
-async def test_invoke_function_reuses_idempotency_key(api_client: AsyncClient) -> None:
+async def test_invoke_function_reuses_idempotency_key(
+    api_client: AsyncClient,
+    fake_invocation_queue_publisher,
+) -> None:
     await create_function(api_client)
     await create_function_version(api_client)
 
@@ -109,6 +124,7 @@ async def test_invoke_function_reuses_idempotency_key(api_client: AsyncClient) -
 
     assert status_response.status_code == 200
     assert status_response.json()["payload_inline"] == {"request": 1}
+    assert len(fake_invocation_queue_publisher.messages) == 1
 
 
 @pytest.mark.asyncio
@@ -179,3 +195,26 @@ async def test_get_invocation_is_scoped_per_owner(api_client: AsyncClient) -> No
     )
 
     assert forbidden_response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_invoke_function_rolls_back_invocation_when_queue_publish_fails(
+    api_client: AsyncClient,
+    fake_invocation_queue_publisher,
+) -> None:
+    await create_function(api_client)
+    await create_function_version(api_client)
+    fake_invocation_queue_publisher.fail_next = True
+
+    response = await api_client.post(
+        "/functions/hello/invoke",
+        json={"payload": {"name": "Ada"}},
+    )
+
+    assert response.status_code == 503
+    assert len(fake_invocation_queue_publisher.messages) == 1
+
+    attempted_invocation_id = fake_invocation_queue_publisher.messages[0]["invocation_id"]
+    status_response = await api_client.get(f"/invocations/{attempted_invocation_id}")
+
+    assert status_response.status_code == 404

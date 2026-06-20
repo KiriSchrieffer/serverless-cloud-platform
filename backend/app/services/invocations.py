@@ -1,5 +1,6 @@
 """Invocation lifecycle service for accepted asynchronous requests."""
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -29,6 +30,12 @@ class InvocationNotFoundError(Exception):
         self.invocation_id = invocation_id
 
 
+@dataclass(frozen=True)
+class InvocationCreateResult:
+    invocation: Invocation
+    created: bool
+
+
 class InvocationService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -40,11 +47,11 @@ class InvocationService:
         payload: dict | list | str | int | float | bool | None,
         idempotency_key: str | None = None,
         version_number: int | None = None,
-    ) -> Invocation:
+    ) -> InvocationCreateResult:
         if idempotency_key is not None:
             existing = await self.get_invocation_by_idempotency_key(owner_id, idempotency_key)
             if existing is not None:
-                return existing
+                return InvocationCreateResult(invocation=existing, created=False)
 
         function_version = await self.resolve_function_version(
             owner_id=owner_id,
@@ -65,9 +72,15 @@ class InvocationService:
             attempt_count=0,
         )
         self.session.add(invocation)
+        await self.session.flush()
+        return InvocationCreateResult(invocation=invocation, created=True)
+
+    async def commit_invocation(self, invocation: Invocation) -> None:
         await self.session.commit()
         await self.session.refresh(invocation)
-        return invocation
+
+    async def rollback(self) -> None:
+        await self.session.rollback()
 
     async def get_invocation(self, owner_id: UUID, invocation_id: UUID) -> Invocation:
         result = await self.session.scalars(
