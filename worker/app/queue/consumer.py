@@ -71,6 +71,13 @@ class RedisStreamConsumer:
         )
         return parse_xreadgroup_response(response)
 
+    async def acknowledge(self, task: InvocationTask) -> int:
+        return await self.redis.xack(
+            self.stream_name,
+            self.consumer_group,
+            task.stream_message_id,
+        )
+
 
 def parse_xreadgroup_response(response: object) -> list[InvocationTask]:
     tasks: list[InvocationTask] = []

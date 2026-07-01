@@ -2,13 +2,15 @@ from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.app.domain.enums import InvocationStatus
+from backend.app.domain.enums import InvocationAttemptStatus, InvocationStatus
 from backend.app.models.function import Function, FunctionVersion
-from backend.app.models.invocation import Invocation
+from backend.app.models.invocation import Invocation, InvocationAttempt
 from backend.app.models.user import User
 from worker.app.queue.consumer import parse_xreadgroup_response
+from worker.app.runtime.docker_executor import RuntimeExecutionResult
 from worker.app.services.executor import WorkerTaskProcessor
 from worker.app.services.invocation_state import (
     InvocationCannotStartError,
@@ -22,9 +24,27 @@ OWNER_ID = UUID("00000000-0000-0000-0000-000000000001")
 class FakeInvocationTaskConsumer:
     def __init__(self, tasks) -> None:
         self.tasks = tasks
+        self.acked_message_ids: list[str] = []
 
     async def read_new_tasks(self, count: int = 1, block_ms: int = 1000):
         return self.tasks[:count]
+
+    async def acknowledge(self, task) -> int:
+        self.acked_message_ids.append(task.stream_message_id)
+        return 1
+
+
+class FakeRuntimeExecutor:
+    def __init__(self, result=None, exception: Exception | None = None) -> None:
+        self.result = result or RuntimeExecutionResult.succeeded({"ok": True})
+        self.exception = exception
+        self.tasks = []
+
+    async def execute(self, task):
+        self.tasks.append(task)
+        if self.exception is not None:
+            raise self.exception
+        return self.result
 
 
 def test_parse_xreadgroup_response_decodes_invocation_task() -> None:
@@ -100,23 +120,183 @@ async def test_mark_running_rejects_non_queued_invocation(
 
 
 @pytest.mark.asyncio
-async def test_worker_task_processor_reads_task_and_marks_invocation_running(
+async def test_mark_terminal_records_success_result_and_attempt_details(
     test_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     async with test_sessionmaker() as session:
         invocation = await create_invocation(session, status=InvocationStatus.QUEUED)
         task = make_task(invocation)
+        service = InvocationStateService(session)
+        attempt = await service.mark_running(task)
+
+        completed_attempt = await service.mark_terminal(
+            invocation_id=invocation.id,
+            attempt_id=attempt.id,
+            execution_result=RuntimeExecutionResult.succeeded(
+                {"message": "hello"},
+                duration_ms=37,
+                logs_ref="storage/logs/invocation.log",
+                container_id="container-123",
+            ),
+        )
+
+        refreshed_invocation = await session.get(Invocation, invocation.id)
+        assert refreshed_invocation is not None
+        assert refreshed_invocation.status == InvocationStatus.SUCCEEDED
+        assert refreshed_invocation.result_inline == {"message": "hello"}
+        assert refreshed_invocation.error_type is None
+        assert refreshed_invocation.completed_at == completed_attempt.completed_at
+        assert completed_attempt.status == InvocationAttemptStatus.SUCCEEDED
+        assert completed_attempt.duration_ms == 37
+        assert completed_attempt.logs_ref == "storage/logs/invocation.log"
+        assert completed_attempt.container_id == "container-123"
+        assert completed_attempt.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_task_processor_executes_marks_succeeded_and_acks_message(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.QUEUED)
+        task = make_task(invocation)
+        consumer = FakeInvocationTaskConsumer([task])
+        runtime = FakeRuntimeExecutor(
+            RuntimeExecutionResult.succeeded({"ok": True}, duration_ms=15)
+        )
         processor = WorkerTaskProcessor(
-            consumer=FakeInvocationTaskConsumer([task]),
+            consumer=consumer,
             invocation_state=InvocationStateService(session),
+            runtime_executor=runtime,
         )
 
         processed = await processor.process_once()
 
         refreshed_invocation = await session.get(Invocation, invocation.id)
         assert processed == 1
+        assert consumer.acked_message_ids == [task.stream_message_id]
+        assert runtime.tasks == [task]
         assert refreshed_invocation is not None
-        assert refreshed_invocation.status == InvocationStatus.RUNNING
+        assert refreshed_invocation.status == InvocationStatus.SUCCEEDED
+        assert refreshed_invocation.result_inline == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_worker_task_processor_records_runtime_failure_and_acks_message(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.QUEUED)
+        task = make_task(invocation)
+        consumer = FakeInvocationTaskConsumer([task])
+        runtime = FakeRuntimeExecutor(
+            RuntimeExecutionResult.failed(
+                "ValueError",
+                "invalid input",
+                duration_ms=9,
+                logs_ref="storage/logs/failure.log",
+            )
+        )
+        processor = WorkerTaskProcessor(
+            consumer=consumer,
+            invocation_state=InvocationStateService(session),
+            runtime_executor=runtime,
+        )
+
+        processed = await processor.process_once()
+
+        refreshed_invocation = await session.get(Invocation, invocation.id)
+        attempt = await get_only_attempt(session)
+        assert processed == 1
+        assert consumer.acked_message_ids == [task.stream_message_id]
+        assert refreshed_invocation is not None
+        assert refreshed_invocation.status == InvocationStatus.FAILED
+        assert refreshed_invocation.error_type == "ValueError"
+        assert refreshed_invocation.error_message == "invalid input"
+        assert attempt.status == InvocationAttemptStatus.FAILED
+        assert attempt.logs_ref == "storage/logs/failure.log"
+
+
+@pytest.mark.asyncio
+async def test_worker_task_processor_records_timeout_and_acks_message(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.QUEUED)
+        task = make_task(invocation)
+        consumer = FakeInvocationTaskConsumer([task])
+        runtime = FakeRuntimeExecutor(
+            RuntimeExecutionResult.timed_out(
+                "invocation exceeded deadline",
+                duration_ms=30_000,
+            )
+        )
+        processor = WorkerTaskProcessor(
+            consumer=consumer,
+            invocation_state=InvocationStateService(session),
+            runtime_executor=runtime,
+        )
+
+        processed = await processor.process_once()
+
+        refreshed_invocation = await session.get(Invocation, invocation.id)
+        attempt = await get_only_attempt(session)
+        assert processed == 1
+        assert consumer.acked_message_ids == [task.stream_message_id]
+        assert refreshed_invocation is not None
+        assert refreshed_invocation.status == InvocationStatus.TIMEOUT
+        assert refreshed_invocation.error_type == "TimeoutError"
+        assert refreshed_invocation.error_message == "invocation exceeded deadline"
+        assert attempt.status == InvocationAttemptStatus.TIMEOUT
+        assert attempt.duration_ms == 30_000
+
+
+@pytest.mark.asyncio
+async def test_worker_task_processor_converts_runtime_exception_to_failure(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.QUEUED)
+        task = make_task(invocation)
+        consumer = FakeInvocationTaskConsumer([task])
+        runtime = FakeRuntimeExecutor(exception=RuntimeError("container crashed"))
+        processor = WorkerTaskProcessor(
+            consumer=consumer,
+            invocation_state=InvocationStateService(session),
+            runtime_executor=runtime,
+        )
+
+        processed = await processor.process_once()
+
+        refreshed_invocation = await session.get(Invocation, invocation.id)
+        assert processed == 1
+        assert consumer.acked_message_ids == [task.stream_message_id]
+        assert refreshed_invocation is not None
+        assert refreshed_invocation.status == InvocationStatus.FAILED
+        assert refreshed_invocation.error_type == "RuntimeError"
+        assert refreshed_invocation.error_message == "container crashed"
+
+
+@pytest.mark.asyncio
+async def test_worker_task_processor_acks_already_terminal_invocation_without_execution(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.SUCCEEDED)
+        task = make_task(invocation)
+        consumer = FakeInvocationTaskConsumer([task])
+        runtime = FakeRuntimeExecutor()
+        processor = WorkerTaskProcessor(
+            consumer=consumer,
+            invocation_state=InvocationStateService(session),
+            runtime_executor=runtime,
+        )
+
+        processed = await processor.process_once()
+
+        assert processed == 1
+        assert consumer.acked_message_ids == [task.stream_message_id]
+        assert runtime.tasks == []
 
 
 async def create_invocation(session: AsyncSession, status: InvocationStatus) -> Invocation:
@@ -180,3 +360,8 @@ def make_task(invocation: Invocation):
             )
         ]
     )[0]
+
+
+async def get_only_attempt(session: AsyncSession) -> InvocationAttempt:
+    result = await session.scalars(select(InvocationAttempt))
+    return result.one()

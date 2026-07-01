@@ -4,12 +4,21 @@ from typing import Protocol
 from uuid import UUID
 
 from worker.app.queue.consumer import InvocationTask
-from worker.app.services.invocation_state import InvocationStateService
+from worker.app.runtime.docker_executor import RuntimeExecutionResult
+from worker.app.services.invocation_state import InvocationCannotStartError, InvocationStateService
 
 
 class InvocationTaskConsumerProtocol(Protocol):
     async def read_new_tasks(self, count: int = 1, block_ms: int = 1000) -> list[InvocationTask]:
         """Read new invocation tasks from the queue."""
+
+    async def acknowledge(self, task: InvocationTask) -> int:
+        """Acknowledge a stream task after durable state changes."""
+
+
+class RuntimeExecutorProtocol(Protocol):
+    async def execute(self, task: InvocationTask) -> RuntimeExecutionResult:
+        """Execute the invocation task and return the runtime result envelope."""
 
 
 class WorkerTaskProcessor:
@@ -17,16 +26,41 @@ class WorkerTaskProcessor:
         self,
         consumer: InvocationTaskConsumerProtocol,
         invocation_state: InvocationStateService,
+        runtime_executor: RuntimeExecutorProtocol,
         worker_id: UUID | None = None,
     ) -> None:
         self.consumer = consumer
         self.invocation_state = invocation_state
+        self.runtime_executor = runtime_executor
         self.worker_id = worker_id
 
     async def process_once(self) -> int:
         tasks = await self.consumer.read_new_tasks(count=1, block_ms=1000)
         processed = 0
         for task in tasks:
-            await self.invocation_state.mark_running(task, worker_id=self.worker_id)
+            try:
+                attempt = await self.invocation_state.mark_running(task, worker_id=self.worker_id)
+            except InvocationCannotStartError as exc:
+                if self.invocation_state.is_terminal_status(exc.status):
+                    await self.consumer.acknowledge(task)
+                    processed += 1
+                    continue
+                raise
+
+            try:
+                execution_result = await self.runtime_executor.execute(task)
+            except Exception as exc:
+                execution_result = RuntimeExecutionResult.failed(
+                    error_type=exc.__class__.__name__,
+                    error_message=str(exc),
+                    exit_code=None,
+                )
+
+            await self.invocation_state.mark_terminal(
+                invocation_id=task.invocation_id,
+                attempt_id=attempt.id,
+                execution_result=execution_result,
+            )
+            await self.consumer.acknowledge(task)
             processed += 1
         return processed
