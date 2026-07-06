@@ -27,7 +27,7 @@ test = ["aiosqlite", "httpx", "pytest", "pytest-asyncio"]
 dev = ["ruff", "mypy"]
 
 [tool.setuptools.packages.find]
-include = ["backend*", "worker*"]
+include = ["backend*", "worker*", "benchmarks*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
