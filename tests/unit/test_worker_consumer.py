@@ -16,6 +16,7 @@ from worker.app.services.invocation_state import (
     InvocationCannotStartError,
     InvocationStateService,
 )
+from worker.app.services.retry import RetryPolicy
 
 
 OWNER_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -354,6 +355,68 @@ async def test_worker_task_processor_converts_runtime_exception_to_failure(
         assert refreshed_invocation.status == InvocationStatus.FAILED
         assert refreshed_invocation.error_type == "RuntimeError"
         assert refreshed_invocation.error_message == "container crashed"
+
+
+@pytest.mark.asyncio
+async def test_worker_task_processor_retries_infrastructure_failure_without_ack(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.QUEUED)
+        task = make_task(invocation)
+        consumer = FakeInvocationTaskConsumer([task])
+        runtime = FakeRuntimeExecutor(exception=RuntimeError("docker unavailable"))
+        processor = WorkerTaskProcessor(
+            consumer=consumer,
+            invocation_state=InvocationStateService(session),
+            runtime_executor=runtime,
+            retry_policy=RetryPolicy(max_attempts=3),
+        )
+
+        processed = await processor.process_once()
+
+        refreshed_invocation = await session.get(Invocation, invocation.id)
+        attempt = await get_only_attempt(session)
+        assert processed == 1
+        assert consumer.acked_message_ids == []
+        assert refreshed_invocation is not None
+        assert refreshed_invocation.status == InvocationStatus.RETRYING
+        assert refreshed_invocation.completed_at is None
+        assert refreshed_invocation.started_at is None
+        assert refreshed_invocation.error_type == "RuntimeError"
+        assert refreshed_invocation.error_message == "docker unavailable"
+        assert attempt.status == InvocationAttemptStatus.FAILED
+        assert attempt.error_type == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_worker_task_processor_acks_retryable_failure_when_attempts_exhausted(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.QUEUED)
+        invocation.attempt_count = 2
+        await session.commit()
+        task = make_task(invocation)
+        consumer = FakeInvocationTaskConsumer([task])
+        runtime = FakeRuntimeExecutor(exception=RuntimeError("docker unavailable"))
+        processor = WorkerTaskProcessor(
+            consumer=consumer,
+            invocation_state=InvocationStateService(session),
+            runtime_executor=runtime,
+            retry_policy=RetryPolicy(max_attempts=1),
+        )
+
+        processed = await processor.process_once()
+
+        refreshed_invocation = await session.get(Invocation, invocation.id)
+        attempt = await get_only_attempt(session)
+        assert processed == 1
+        assert consumer.acked_message_ids == [task.stream_message_id]
+        assert refreshed_invocation is not None
+        assert refreshed_invocation.status == InvocationStatus.FAILED
+        assert refreshed_invocation.error_type == "RuntimeError"
+        assert attempt.status == InvocationAttemptStatus.FAILED
 
 
 @pytest.mark.asyncio

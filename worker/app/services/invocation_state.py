@@ -9,6 +9,7 @@ from backend.app.domain.enums import InvocationAttemptStatus, InvocationStatus
 from backend.app.models.invocation import Invocation, InvocationAttempt
 from worker.app.queue.consumer import InvocationTask
 from worker.app.runtime.docker_executor import RuntimeExecutionResult
+from worker.app.services.retry import RetryDecision
 
 TERMINAL_INVOCATION_STATUSES = {
     InvocationStatus.SUCCEEDED,
@@ -96,6 +97,20 @@ class InvocationStateService:
         attempt_id: UUID,
         execution_result: RuntimeExecutionResult,
     ) -> InvocationAttempt:
+        return await self.mark_finished(
+            invocation_id=invocation_id,
+            attempt_id=attempt_id,
+            execution_result=execution_result,
+            retry_decision=RetryDecision(should_retry=False, attempts_remaining=0),
+        )
+
+    async def mark_finished(
+        self,
+        invocation_id: UUID,
+        attempt_id: UUID,
+        execution_result: RuntimeExecutionResult,
+        retry_decision: RetryDecision,
+    ) -> InvocationAttempt:
         invocation = await self.session.get(Invocation, invocation_id)
         attempt = await self.session.get(InvocationAttempt, attempt_id)
 
@@ -114,10 +129,15 @@ class InvocationStateService:
             )
 
         completed_at = self.utcnow()
-        terminal_status = ATTEMPT_TO_INVOCATION_STATUS[execution_result.status]
+        should_retry = retry_decision.should_retry
 
-        invocation.status = terminal_status
-        invocation.completed_at = completed_at
+        if should_retry:
+            invocation.status = InvocationStatus.RETRYING
+            invocation.completed_at = None
+            invocation.started_at = None
+        else:
+            invocation.status = ATTEMPT_TO_INVOCATION_STATUS[execution_result.status]
+            invocation.completed_at = completed_at
         invocation.result_inline = execution_result.result_inline
         invocation.result_ref = execution_result.result_ref
         invocation.error_type = execution_result.error_type

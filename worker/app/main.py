@@ -23,6 +23,7 @@ from worker.app.services.heartbeat import (
 )
 from worker.app.services.invocation_state import InvocationStateService
 from worker.app.services.recovery import StaleWorkerRecoveryService
+from worker.app.services.retry import RetryPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ async def process_worker_once(
             worker_id=worker_id,
             on_task_started=on_task_started if runtime_state is not None else None,
             on_task_finished=on_task_finished if runtime_state is not None else None,
+            retry_policy=RetryPolicy(max_attempts=max_attempts),
         )
         claimed_tasks = await claim_pending_tasks(
             consumer,
