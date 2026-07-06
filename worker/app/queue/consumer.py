@@ -5,6 +5,7 @@ from datetime import datetime
 from uuid import UUID
 
 from redis.asyncio import Redis
+from redis.exceptions import ResponseError
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,18 @@ class RedisStreamConsumer:
         self.stream_name = stream_name
         self.consumer_group = consumer_group
         self.consumer_name = consumer_name
+
+    async def ensure_consumer_group(self) -> None:
+        try:
+            await self.redis.xgroup_create(
+                name=self.stream_name,
+                groupname=self.consumer_group,
+                id="0",
+                mkstream=True,
+            )
+        except ResponseError as exc:
+            if "BUSYGROUP" not in str(exc):
+                raise
 
     async def read_new_tasks(
         self,
