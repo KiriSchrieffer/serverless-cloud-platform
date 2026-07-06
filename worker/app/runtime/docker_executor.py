@@ -185,7 +185,7 @@ class DockerRuntimeExecutor:
         try:
             container = docker_client.containers.run(
                 self.runtime_image,
-                command=CONTAINER_COMMAND,
+                command=[CONTAINER_COMMAND],
                 entrypoint=["/bin/sh", "-c"],
                 detach=True,
                 stdout=True,

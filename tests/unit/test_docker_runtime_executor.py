@@ -108,7 +108,7 @@ async def test_docker_runtime_executor_runs_container_with_sandbox_options(
     assert (storage_root / "logs" / f"{invocation.id}.stderr.log").read_bytes() == b"debug log"
     assert fake_container.removed is True
     assert run_kwargs["image"] == "runtime:test"
-    assert run_kwargs["command"] == "python /opt/runtime/runner.py < /var/input.json"
+    assert run_kwargs["command"] == ["python /opt/runtime/runner.py < /var/input.json"]
     assert run_kwargs["entrypoint"] == ["/bin/sh", "-c"]
     assert run_kwargs["environment"] == {
         "HANDLER": "main.handler",
