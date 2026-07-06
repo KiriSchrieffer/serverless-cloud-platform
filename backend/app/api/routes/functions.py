@@ -1,16 +1,18 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from backend.app.api.dependencies import (
     get_current_user_id,
     get_function_registry_service,
     get_invocation_queue_publisher,
     get_invocation_service,
+    get_package_storage_service,
 )
 from backend.app.schemas.invocation import InvocationAccepted, InvocationCreate
 from backend.app.schemas.function import (
+    HANDLER_PATTERN,
     FunctionCreate,
     FunctionRead,
     FunctionVersionCreate,
@@ -27,6 +29,7 @@ from backend.app.services.invocation_queue import (
     InvocationQueuePublisherProtocol,
 )
 from backend.app.services.invocations import FunctionVersionNotFoundError, InvocationService
+from backend.app.services.storage import LocalPackageStorageService, PackageValidationError
 
 router = APIRouter()
 
@@ -87,6 +90,67 @@ async def create_function_version(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Could not allocate next version for function '{exc.function_name}'",
         ) from exc
+
+
+@router.post(
+    "/{function_name}/versions/upload",
+    response_model=FunctionVersionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_function_version(
+    function_name: str,
+    owner_id: Annotated[UUID, Depends(get_current_user_id)],
+    registry: Annotated[FunctionRegistryService, Depends(get_function_registry_service)],
+    storage_service: Annotated[
+        LocalPackageStorageService,
+        Depends(get_package_storage_service),
+    ],
+    package: Annotated[UploadFile, File(description="Zip package containing handler code.")],
+    runtime: Annotated[str, Form(pattern=r"^python3\.11$")] = "python3.11",
+    handler: Annotated[
+        str,
+        Form(min_length=3, max_length=255, pattern=HANDLER_PATTERN),
+    ] = "main.handler",
+    memory_limit_mb: Annotated[int, Form(ge=64, le=1024)] = 256,
+    cpu_limit: Annotated[float, Form(ge=0.1, le=2.0)] = 0.5,
+    timeout_seconds: Annotated[int, Form(ge=1, le=300)] = 30,
+) -> FunctionVersionRead:
+    try:
+        next_version_number = await registry.get_next_function_version_number(
+            owner_id=owner_id,
+            function_name=function_name,
+        )
+        stored_package = storage_service.store_function_package(
+            owner_id=owner_id,
+            function_name=function_name,
+            version_number=next_version_number,
+            handler=handler,
+            contents=await package.read(),
+        )
+        return await registry.create_function_version(
+            owner_id=owner_id,
+            function_name=function_name,
+            runtime=runtime,
+            handler=handler,
+            package_uri=stored_package.package_uri,
+            package_hash=stored_package.package_hash,
+            memory_limit_mb=memory_limit_mb,
+            cpu_limit=cpu_limit,
+            timeout_seconds=timeout_seconds,
+            version_number=next_version_number,
+        )
+    except FunctionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Function '{exc.name}' not found",
+        ) from exc
+    except FunctionVersionConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Could not allocate next version for function '{exc.function_name}'",
+        ) from exc
+    except PackageValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.detail) from exc
 
 
 @router.get("/{function_name}/versions", response_model=list[FunctionVersionRead])

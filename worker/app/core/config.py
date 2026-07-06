@@ -11,6 +11,7 @@ class WorkerSettings(BaseSettings):
     default_max_concurrency: int = 2
     default_max_attempts: int = 3
     runtime_image: str = "serverless-python311-runtime:latest"
+    workspace_root: str | None = None
     storage_root: str = "storage"
     max_inline_result_bytes: int = 32768
     max_log_bytes: int = 262144

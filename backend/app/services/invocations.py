@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.domain.enums import InvocationStatus
 from backend.app.models.function import Function, FunctionVersion
-from backend.app.models.invocation import Invocation
+from backend.app.models.invocation import Invocation, InvocationAttempt
 from backend.app.services.function_registry import FunctionNotFoundError
 
 
@@ -93,6 +93,16 @@ class InvocationService:
         if invocation is None:
             raise InvocationNotFoundError(invocation_id)
         return invocation
+
+    async def get_latest_logs_ref(self, owner_id: UUID, invocation_id: UUID) -> str | None:
+        invocation = await self.get_invocation(owner_id=owner_id, invocation_id=invocation_id)
+        result = await self.session.scalars(
+            select(InvocationAttempt.logs_ref)
+            .where(InvocationAttempt.invocation_id == invocation.id)
+            .order_by(InvocationAttempt.attempt_number.desc())
+            .limit(1)
+        )
+        return result.one_or_none()
 
     async def get_invocation_by_idempotency_key(
         self,

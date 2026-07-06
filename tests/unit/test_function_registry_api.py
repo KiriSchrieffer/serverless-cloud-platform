@@ -1,3 +1,7 @@
+import hashlib
+from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
+
 import pytest
 from httpx import AsyncClient
 
@@ -101,6 +105,109 @@ async def test_create_and_list_function_versions(api_client: AsyncClient) -> Non
 
 
 @pytest.mark.asyncio
+async def test_upload_function_version_stores_package_and_hashes_contents(
+    api_client: AsyncClient,
+) -> None:
+    await api_client.post("/functions", json={"name": "hello"})
+    package_bytes = build_zip({"main.py": "def handler(event, context): return event\n"})
+
+    response = await api_client.post(
+        "/functions/hello/versions/upload",
+        data={
+            "runtime": "python3.11",
+            "handler": "main.handler",
+            "memory_limit_mb": "512",
+            "cpu_limit": "1.0",
+            "timeout_seconds": "45",
+        },
+        files={"package": ("function.zip", package_bytes, "application/zip")},
+    )
+
+    assert response.status_code == 201
+    version = response.json()
+    assert version["version_number"] == 1
+    assert version["runtime"] == "python3.11"
+    assert version["handler"] == "main.handler"
+    assert version["memory_limit_mb"] == 512
+    assert version["cpu_limit"] == 1.0
+    assert version["timeout_seconds"] == 45
+    assert version["package_hash"] == hashlib.sha256(package_bytes).hexdigest()
+    assert version["package_uri"].endswith(
+        "/00000000-0000-0000-0000-000000000001/hello/v1/function.zip"
+    )
+
+
+@pytest.mark.asyncio
+async def test_upload_function_version_uses_next_version_number(
+    api_client: AsyncClient,
+) -> None:
+    await api_client.post("/functions", json={"name": "hello"})
+    first_package = build_zip({"main.py": "def handler(event, context): return event\n"})
+    second_package = build_zip({"main.py": "def handler(event, context): return {'v': 2}\n"})
+
+    first_response = await api_client.post(
+        "/functions/hello/versions/upload",
+        files={"package": ("function.zip", first_package, "application/zip")},
+    )
+    second_response = await api_client.post(
+        "/functions/hello/versions/upload",
+        files={"package": ("function.zip", second_package, "application/zip")},
+    )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    assert first_response.json()["version_number"] == 1
+    assert second_response.json()["version_number"] == 2
+    assert second_response.json()["package_uri"].endswith(
+        "/00000000-0000-0000-0000-000000000001/hello/v2/function.zip"
+    )
+
+
+@pytest.mark.asyncio
+async def test_upload_function_version_rejects_missing_handler_module(
+    api_client: AsyncClient,
+) -> None:
+    await api_client.post("/functions", json={"name": "hello"})
+    package_bytes = build_zip({"other.py": "def handler(event, context): return event\n"})
+
+    response = await api_client.post(
+        "/functions/hello/versions/upload",
+        files={"package": ("function.zip", package_bytes, "application/zip")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Package must contain handler module 'main.py'"
+
+
+@pytest.mark.asyncio
+async def test_upload_function_version_rejects_invalid_zip(api_client: AsyncClient) -> None:
+    await api_client.post("/functions", json={"name": "hello"})
+
+    response = await api_client.post(
+        "/functions/hello/versions/upload",
+        files={"package": ("function.zip", b"not a zip", "application/zip")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Package file must be a valid zip archive"
+
+
+@pytest.mark.asyncio
+async def test_upload_function_version_returns_404_for_missing_function(
+    api_client: AsyncClient,
+) -> None:
+    package_bytes = build_zip({"main.py": "def handler(event, context): return event\n"})
+
+    response = await api_client.post(
+        "/functions/missing/versions/upload",
+        files={"package": ("function.zip", package_bytes, "application/zip")},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Function 'missing' not found"
+
+
+@pytest.mark.asyncio
 async def test_function_versions_are_scoped_per_owner(api_client: AsyncClient) -> None:
     first_owner = "10000000-0000-0000-0000-000000000001"
     second_owner = "20000000-0000-0000-0000-000000000001"
@@ -153,3 +260,11 @@ async def test_create_function_version_validates_runtime_and_limits(
     )
 
     assert response.status_code == 422
+
+
+def build_zip(files: dict[str, str]) -> bytes:
+    buffer = BytesIO()
+    with ZipFile(buffer, mode="w", compression=ZIP_DEFLATED) as archive:
+        for path, contents in files.items():
+            archive.writestr(path, contents)
+    return buffer.getvalue()

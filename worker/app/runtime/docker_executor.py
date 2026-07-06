@@ -124,7 +124,7 @@ class DockerRuntimeExecutor:
         *,
         docker_client: Any | None = None,
         runtime_image: str = settings.runtime_image,
-        workspace_root: Path | str | None = None,
+        workspace_root: Path | str | None = settings.workspace_root,
         storage_root: Path | str = settings.storage_root,
         max_inline_result_bytes: int = settings.max_inline_result_bytes,
         max_log_bytes: int = settings.max_log_bytes,

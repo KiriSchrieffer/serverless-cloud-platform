@@ -1,13 +1,19 @@
 """Shared pytest fixtures."""
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from backend.app.api.dependencies import get_db_session, get_invocation_queue_publisher
+from backend.app.api.dependencies import (
+    get_db_session,
+    get_invocation_queue_publisher,
+    get_log_storage_service,
+    get_package_storage_service,
+)
 from backend.app.main import create_app
 from backend.app.models import Base
 from backend.app.models.invocation import Invocation
@@ -15,6 +21,7 @@ from backend.app.services.invocation_queue import (
     InvocationQueuePublishError,
     build_invocation_message_fields,
 )
+from backend.app.services.storage import LocalLogStorageService, LocalPackageStorageService
 
 
 class FakeInvocationQueuePublisher:
@@ -58,6 +65,7 @@ def fake_invocation_queue_publisher() -> FakeInvocationQueuePublisher:
 async def api_client(
     test_sessionmaker: async_sessionmaker[AsyncSession],
     fake_invocation_queue_publisher: FakeInvocationQueuePublisher,
+    tmp_path: Path,
 ) -> AsyncIterator[AsyncClient]:
     app = create_app()
 
@@ -68,6 +76,13 @@ async def api_client(
     app.dependency_overrides[get_db_session] = override_db_session
     app.dependency_overrides[get_invocation_queue_publisher] = (
         lambda: fake_invocation_queue_publisher
+    )
+    app.dependency_overrides[get_package_storage_service] = lambda: LocalPackageStorageService(
+        package_storage_dir=tmp_path / "packages",
+        workspace_root=tmp_path,
+    )
+    app.dependency_overrides[get_log_storage_service] = lambda: LocalLogStorageService(
+        workspace_root=tmp_path,
     )
 
     async with AsyncClient(

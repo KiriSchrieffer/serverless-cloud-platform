@@ -92,12 +92,13 @@ class FunctionRegistryService:
         memory_limit_mb: int,
         cpu_limit: float,
         timeout_seconds: int,
+        version_number: int | None = None,
     ) -> FunctionVersion:
         function = await self.get_function_by_name(owner_id=owner_id, name=function_name)
         if function is None:
             raise FunctionNotFoundError(function_name)
 
-        next_version_number = await self.get_next_version_number(function.id)
+        next_version_number = version_number or await self.get_next_version_number(function.id)
         version = FunctionVersion(
             function_id=function.id,
             version_number=next_version_number,
@@ -119,6 +120,16 @@ class FunctionRegistryService:
 
         await self.session.refresh(version)
         return version
+
+    async def get_next_function_version_number(
+        self,
+        owner_id: UUID,
+        function_name: str,
+    ) -> int:
+        function = await self.get_function_by_name(owner_id=owner_id, name=function_name)
+        if function is None:
+            raise FunctionNotFoundError(function_name)
+        return await self.get_next_version_number(function.id)
 
     async def list_function_versions(
         self,
