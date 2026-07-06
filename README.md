@@ -65,7 +65,8 @@ Requirements:
 Start the full local platform:
 
 ```bash
-cd "/Users/02/Documents/Serverless Cloud Platform"
+git clone https://github.com/KiriSchrieffer/serverless-cloud-platform.git
+cd serverless-cloud-platform
 
 docker compose up --build
 ```
@@ -81,11 +82,9 @@ The compose setup uses `.env.example` for local defaults.
 
 ## Run the Demo Invocation
 
-In a second terminal, run:
+In a second terminal, run this from the repository root:
 
 ```bash
-cd "/Users/02/Documents/Serverless Cloud Platform"
-
 bash scripts/demo_invoke.sh
 ```
 
@@ -146,8 +145,6 @@ curl -fsS http://localhost:8000/metrics/summary
 Run a real local benchmark after `docker compose up --build` is running:
 
 ```bash
-cd "/Users/02/Documents/Serverless Cloud Platform"
-
 python3 benchmarks/run_benchmark.py \
   --workload noop \
   --invocations 20 \
@@ -197,8 +194,6 @@ mark the stale worker offline, record the lost attempt, and continue processing.
 Run the failure-injection regression:
 
 ```bash
-cd "/Users/02/Documents/Serverless Cloud Platform"
-
 python3 -m pytest tests/failure_injection/test_worker_crash_recovery.py
 ```
 
@@ -207,8 +202,6 @@ python3 -m pytest tests/failure_injection/test_worker_crash_recovery.py
 Install local test dependencies:
 
 ```bash
-cd "/Users/02/Documents/Serverless Cloud Platform"
-
 python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[test]"
 ```
@@ -216,8 +209,6 @@ python3 -m venv .venv
 Run the test suite:
 
 ```bash
-cd "/Users/02/Documents/Serverless Cloud Platform"
-
 python3 -m compileall backend worker benchmarks tests
 .venv/bin/python -m pytest
 git diff --check
