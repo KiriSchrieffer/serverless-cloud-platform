@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     package_storage_dir: str = "storage/packages"
     result_storage_dir: str = "storage/results"
     log_storage_dir: str = "storage/logs"
+    stale_worker_seconds: int = 15
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

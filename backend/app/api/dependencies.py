@@ -11,6 +11,7 @@ from backend.app.db.session import AsyncSessionLocal
 from backend.app.services.function_registry import FunctionRegistryService
 from backend.app.services.invocation_queue import RedisInvocationQueuePublisher
 from backend.app.services.invocations import InvocationService
+from backend.app.services.metrics import PlatformMetricsService
 from backend.app.services.storage import LocalLogStorageService, LocalPackageStorageService
 
 DEVELOPMENT_OWNER_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -50,6 +51,12 @@ def get_invocation_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> InvocationService:
     return InvocationService(session)
+
+
+def get_metrics_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> PlatformMetricsService:
+    return PlatformMetricsService(session)
 
 
 def get_package_storage_service() -> LocalPackageStorageService:
