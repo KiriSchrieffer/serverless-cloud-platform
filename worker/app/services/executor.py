@@ -43,6 +43,9 @@ class WorkerTaskProcessor:
 
     async def process_once(self) -> int:
         tasks = await self.consumer.read_new_tasks(count=1, block_ms=1000)
+        return await self.process_tasks(tasks)
+
+    async def process_tasks(self, tasks: list[InvocationTask]) -> int:
         processed = 0
         for task in tasks:
             try:

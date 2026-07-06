@@ -9,7 +9,7 @@ from backend.app.domain.enums import InvocationAttemptStatus, InvocationStatus
 from backend.app.models.function import Function, FunctionVersion
 from backend.app.models.invocation import Invocation, InvocationAttempt
 from backend.app.models.user import User
-from worker.app.queue.consumer import parse_xreadgroup_response
+from worker.app.queue.consumer import RedisStreamConsumer, parse_xreadgroup_response
 from worker.app.runtime.docker_executor import RuntimeExecutionResult
 from worker.app.services.executor import WorkerTaskProcessor
 from worker.app.services.invocation_state import (
@@ -45,6 +45,16 @@ class FakeRuntimeExecutor:
         if self.exception is not None:
             raise self.exception
         return self.result
+
+
+class FakeRedisForClaim:
+    def __init__(self, response) -> None:
+        self.response = response
+        self.xautoclaim_kwargs = None
+
+    async def xautoclaim(self, **kwargs):
+        self.xautoclaim_kwargs = kwargs
+        return self.response
 
 
 def test_parse_xreadgroup_response_decodes_invocation_task() -> None:
@@ -85,6 +95,56 @@ def test_parse_xreadgroup_response_decodes_invocation_task() -> None:
 
 
 @pytest.mark.asyncio
+async def test_claim_stale_tasks_decodes_xautoclaim_response() -> None:
+    invocation_id = uuid4()
+    function_version_id = uuid4()
+    queued_at = datetime(2026, 6, 20, 10, 0, 0)
+    deadline_at = datetime(2026, 6, 20, 10, 0, 30)
+    redis = FakeRedisForClaim(
+        (
+            b"0-0",
+            [
+                (
+                    b"1710000000000-0",
+                    {
+                        b"invocation_id": str(invocation_id).encode(),
+                        b"function_version_id": str(function_version_id).encode(),
+                        b"owner_id": str(OWNER_ID).encode(),
+                        b"attempt_number": b"1",
+                        b"queued_at": queued_at.isoformat().encode(),
+                        b"deadline_at": deadline_at.isoformat().encode(),
+                    },
+                )
+            ],
+            [],
+        )
+    )
+    consumer = RedisStreamConsumer(
+        redis=redis,
+        stream_name="invocations",
+        consumer_group="workers",
+        consumer_name="worker-1",
+    )
+
+    claimed = await consumer.claim_stale_tasks(min_idle_ms=15_000, count=5)
+
+    assert redis.xautoclaim_kwargs == {
+        "name": "invocations",
+        "groupname": "workers",
+        "consumername": "worker-1",
+        "min_idle_time": 15_000,
+        "start_id": "0-0",
+        "count": 5,
+    }
+    assert claimed.next_start_id == "0-0"
+    assert len(claimed.tasks) == 1
+    assert claimed.tasks[0].stream_message_id == "1710000000000-0"
+    assert claimed.tasks[0].invocation_id == invocation_id
+    assert claimed.tasks[0].function_version_id == function_version_id
+    assert claimed.tasks[0].owner_id == OWNER_ID
+
+
+@pytest.mark.asyncio
 async def test_mark_running_creates_attempt_and_updates_invocation(
     test_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -102,6 +162,25 @@ async def test_mark_running_creates_attempt_and_updates_invocation(
         assert attempt.invocation_id == invocation.id
         assert attempt.attempt_number == 1
         assert attempt.worker_id is None
+
+
+@pytest.mark.asyncio
+async def test_mark_running_increments_attempt_number_for_retrying_invocation(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.RETRYING)
+        invocation.attempt_count = 1
+        await session.commit()
+        task = make_task(invocation)
+
+        attempt = await InvocationStateService(session).mark_running(task)
+
+        refreshed_invocation = await session.get(Invocation, invocation.id)
+        assert refreshed_invocation is not None
+        assert refreshed_invocation.status == InvocationStatus.RUNNING
+        assert refreshed_invocation.attempt_count == 2
+        assert attempt.attempt_number == 2
 
 
 @pytest.mark.asyncio

@@ -69,17 +69,21 @@ class InvocationStateService:
                 invocation.status if invocation is not None else None,
             )
 
+        attempt_number = task.attempt_number
+        if invocation.status == InvocationStatus.RETRYING:
+            attempt_number = invocation.attempt_count + 1
+
         started_at = self.utcnow()
         attempt = InvocationAttempt(
             invocation_id=task.invocation_id,
             worker_id=worker_id,
-            attempt_number=task.attempt_number,
+            attempt_number=attempt_number,
             status=InvocationAttemptStatus.RUNNING,
             started_at=started_at,
         )
         invocation.status = InvocationStatus.RUNNING
         invocation.started_at = started_at
-        invocation.attempt_count = max(invocation.attempt_count, task.attempt_number)
+        invocation.attempt_count = max(invocation.attempt_count, attempt_number)
 
         self.session.add(attempt)
         await self.session.commit()

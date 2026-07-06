@@ -19,6 +19,12 @@ class InvocationTask:
     deadline_at: datetime
 
 
+@dataclass(frozen=True)
+class ClaimedInvocationTasks:
+    next_start_id: str
+    tasks: list[InvocationTask]
+
+
 def decode_redis_value(value: bytes | str | int) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
@@ -91,6 +97,23 @@ class RedisStreamConsumer:
             task.stream_message_id,
         )
 
+    async def claim_stale_tasks(
+        self,
+        *,
+        min_idle_ms: int,
+        start_id: str = "0-0",
+        count: int = 10,
+    ) -> ClaimedInvocationTasks:
+        response = await self.redis.xautoclaim(
+            name=self.stream_name,
+            groupname=self.consumer_group,
+            consumername=self.consumer_name,
+            min_idle_time=min_idle_ms,
+            start_id=start_id,
+            count=count,
+        )
+        return parse_xautoclaim_response(response)
+
 
 def parse_xreadgroup_response(response: object) -> list[InvocationTask]:
     tasks: list[InvocationTask] = []
@@ -98,3 +121,14 @@ def parse_xreadgroup_response(response: object) -> list[InvocationTask]:
         for message_id, fields in messages:
             tasks.append(parse_invocation_task(message_id, fields))
     return tasks
+
+
+def parse_xautoclaim_response(response: object) -> ClaimedInvocationTasks:
+    if not response:
+        return ClaimedInvocationTasks(next_start_id="0-0", tasks=[])
+
+    next_start_id, messages, *_ = response
+    return ClaimedInvocationTasks(
+        next_start_id=decode_redis_value(next_start_id),
+        tasks=[parse_invocation_task(message_id, fields) for message_id, fields in messages],
+    )

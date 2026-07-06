@@ -8,6 +8,7 @@ class WorkerSettings(BaseSettings):
     invocation_consumer_group: str = "workers"
     worker_heartbeat_seconds: int = 5
     stale_worker_seconds: int = 15
+    pending_message_claim_count: int = 10
     default_max_concurrency: int = 2
     default_max_attempts: int = 3
     runtime_image: str = "serverless-python311-runtime:latest"
