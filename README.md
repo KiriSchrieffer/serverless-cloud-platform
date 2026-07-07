@@ -44,7 +44,7 @@ multi-tenant isolation.
 backend/       FastAPI gateway, schemas, services, database migrations
 worker/        Worker loop, heartbeats, Redis consumer, recovery, Docker execution
 runtime/       In-container Python runtime runner and runtime image
-frontend/      React and TypeScript monitoring dashboard scaffold
+frontend/      React and TypeScript monitoring dashboard
 infra/         Local infrastructure notes
 scripts/       Demo and developer helper scripts
 tests/         Unit and failure-injection tests
@@ -226,4 +226,4 @@ Current test coverage includes:
 - Authentication is intentionally simplified for local development.
 - Docker runtime isolation is not production-grade sandboxing.
 - Autoscaling and Kubernetes scheduling are out of scope for this MVP.
-- The React dashboard is scaffolded and is the next area to connect to APIs.
+- The dashboard is an MVP interface and does not include authentication flows.

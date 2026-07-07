@@ -10,11 +10,14 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "*",
-    "vite": "*",
-    "typescript": "*",
     "react": "*",
     "react-dom": "*",
-    "recharts": "*"
+    "recharts": "*",
+    "typescript": "*",
+    "vite": "*"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3"
+  }
 }
