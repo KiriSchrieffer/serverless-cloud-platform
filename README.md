@@ -147,24 +147,20 @@ Run a real local benchmark after `docker compose up --build` is running:
 ```bash
 python3 benchmarks/run_benchmark.py \
   --workload noop \
-  --invocations 20 \
-  --concurrency 5
+  --invocations 100 \
+  --concurrency 10
 ```
 
-Latest recorded local result:
+Latest recorded local Docker Compose results:
 
-| Metric | Value |
-| --- | --- |
-| throughput_invocations_per_second | 4.76 |
-| success_rate | 1.0 |
-| error_rate | 0.0 |
-| timeout_rate | 0.0 |
-| p95_latency_ms | 1089.25 |
-| average_queue_latency_ms | 641.17 |
-| average_execution_latency_ms | 201.57 |
+| Workload | Invocations | Concurrency | Success rate | Throughput | p95 latency | Avg queue latency | Avg execution latency |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| noop | 100 | 10 | 100% | 4.22/sec | 2575.47 ms | 1899.81 ms | 216.72 ms |
+| sleep 0.2s | 100 | 10 | 100% | 2.26/sec | 4543.32 ms | 3673.18 ms | 425.3 ms |
 
-The full report is in `docs/benchmark-report.md`, and raw JSON is stored in
-`benchmarks/results/latest.json`.
+The reports are in `docs/benchmark-noop-100x10.md` and
+`docs/benchmark-sleep-100x10.md`. Raw JSON is stored in
+`benchmarks/results/noop-100x10.json` and `benchmarks/results/sleep-100x10.json`.
 
 Additional workloads:
 
