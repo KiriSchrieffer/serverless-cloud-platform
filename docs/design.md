@@ -200,11 +200,14 @@ This gives the project stronger reliability semantics and better resume value.
 
 Queue behavior:
 
-- The API creates an invocation row in PostgreSQL with status `QUEUED`.
-- The API appends a message to a Redis Stream.
+- The API creates an invocation row and an outbox row in the same PostgreSQL
+  transaction with status `QUEUED`.
+- A dispatcher publishes committed outbox rows to Redis Streams and records the
+  resulting message ID. A crash after publish but before recording completion
+  may publish a duplicate, which is valid under at-least-once semantics.
 - Workers consume messages through a Redis consumer group.
-- A worker acknowledges a message only after the invocation reaches a terminal
-  state in PostgreSQL.
+- A worker acknowledges a message only after PostgreSQL stores either a
+  terminal invocation state or a durable delayed outbox row for the next retry.
 - If a worker crashes, the message remains pending and can be reclaimed.
 
 Delivery semantics:
@@ -519,8 +522,9 @@ updated_at
 1. Client calls POST /functions/{name}/invoke.
 2. API authenticates the user and checks rate limits.
 3. API resolves the requested function version.
-4. API creates an invocation row with status QUEUED.
-5. API publishes an invocation message to Redis Streams.
+4. API atomically creates an invocation and attempt-1 outbox row with status
+   QUEUED.
+5. Dispatcher publishes the committed outbox row to Redis Streams.
 6. Worker reads the message from the consumer group.
 7. Worker creates an invocation_attempt row.
 8. Worker marks the invocation RUNNING.
@@ -570,6 +574,12 @@ Default policy:
 - Initial delay: 1 second.
 - Maximum delay: 30 seconds.
 
+For retryable execution failures, the worker atomically stores the failed
+attempt, moves the invocation to `RETRYING`, and creates an attempt-aware outbox
+row with `available_at` set from the backoff decision. It then acknowledges the
+old Redis message. The dispatcher publishes the next attempt only after that
+timestamp.
+
 Retryable failures:
 
 - Worker crash.
@@ -596,7 +606,8 @@ MVP scheduling is decentralized:
 
 - Workers pull tasks from a shared Redis consumer group.
 - Each worker advertises `max_concurrency`.
-- A worker only reads more tasks when it has available execution slots.
+- A worker reads at most `max_concurrency` tasks per batch and processes them
+  concurrently with a separate database session per task.
 - FIFO ordering is best-effort because retries and multiple workers can reorder
   execution.
 

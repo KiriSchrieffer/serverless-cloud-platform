@@ -11,10 +11,13 @@ metrics, logs, and benchmark evidence.
 - Registers functions and uploads zipped Python handler packages.
 - Creates immutable function versions with runtime limits and package hashes.
 - Accepts async invocations through `POST /functions/{name}/invoke`.
-- Publishes invocation work to Redis Streams.
+- Commits invocations and dispatch records atomically through a transactional
+  outbox, then publishes work to Redis Streams.
 - Executes user code in a Docker runtime from a worker process.
 - Stores terminal invocation status, result, error, and logs.
 - Recovers stale workers and reclaims pending Redis Stream messages.
+- Runs bounded concurrent invocations per worker and schedules retryable
+  failures through delayed outbox records with exponential backoff and jitter.
 - Exposes worker health and invocation metrics APIs.
 - Provides local benchmark workloads and a reproducible benchmark report.
 
@@ -23,8 +26,9 @@ metrics, logs, and benchmark evidence.
 ```mermaid
 flowchart LR
     Client["Client or benchmark runner"] --> API["FastAPI API"]
-    API --> DB["PostgreSQL metadata"]
-    API --> Queue["Redis Streams"]
+    API --> DB["PostgreSQL metadata + outbox"]
+    DB --> Dispatcher["Outbox dispatcher"]
+    Dispatcher --> Queue["Redis Streams"]
     Queue --> Worker["Worker process"]
     Worker --> Runtime["Docker Python runtime"]
     Runtime --> Worker
@@ -75,10 +79,15 @@ This starts:
 
 - PostgreSQL
 - Redis
+- a one-shot Alembic database migration
+- the Python 3.11 runtime image build
 - FastAPI API on `http://localhost:8000`
+- transactional outbox dispatcher
 - Worker process connected to Redis Streams
 
-The compose setup uses `.env.example` for local defaults.
+The compose setup uses `.env.example` for local defaults. PostgreSQL and Redis
+must pass their health checks, and the migration must complete, before the API
+and worker start.
 
 ## Run the Demo Invocation
 
