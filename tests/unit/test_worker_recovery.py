@@ -11,7 +11,7 @@ from backend.app.models.invocation import Invocation, InvocationAttempt
 from backend.app.models.user import User
 from backend.app.models.worker import Worker
 from worker.app.main import process_worker_once
-from worker.app.queue.consumer import InvocationTask
+from worker.app.queue.consumer import ClaimedInvocationTasks, InvocationTask
 from worker.app.runtime.docker_executor import RuntimeExecutionResult
 from worker.app.services.recovery import StaleWorkerRecoveryService
 
@@ -25,10 +25,16 @@ class ClaimingInvocationTaskConsumer:
         self.read_new_calls = 0
         self.acked_message_ids: list[str] = []
 
-    async def claim_stale_tasks(self, *, min_idle_ms: int, count: int):
-        from worker.app.queue.consumer import ClaimedInvocationTasks
-
-        self.claim_calls.append({"min_idle_ms": min_idle_ms, "count": count})
+    async def claim_stale_tasks(
+        self,
+        *,
+        min_idle_ms: int,
+        start_id: str,
+        count: int,
+    ) -> ClaimedInvocationTasks:
+        self.claim_calls.append(
+            {"min_idle_ms": min_idle_ms, "start_id": start_id, "count": count}
+        )
         return ClaimedInvocationTasks(next_start_id="0-0", tasks=self.tasks)
 
     async def read_new_tasks(self, count: int = 1, block_ms: int = 1000):
@@ -48,6 +54,34 @@ class FakeRuntimeExecutor:
     async def execute(self, task):
         self.tasks.append(task)
         return self.result
+
+
+class PaginatedClaimingConsumer:
+    def __init__(self, pages: dict[str, ClaimedInvocationTasks]) -> None:
+        self.pages = pages
+        self.claim_calls: list[dict[str, int | str]] = []
+        self.read_new_calls = 0
+        self.acked_message_ids: list[str] = []
+
+    async def claim_stale_tasks(
+        self,
+        *,
+        min_idle_ms: int,
+        start_id: str,
+        count: int,
+    ) -> ClaimedInvocationTasks:
+        self.claim_calls.append(
+            {"min_idle_ms": min_idle_ms, "start_id": start_id, "count": count}
+        )
+        return self.pages[start_id]
+
+    async def read_new_tasks(self, count: int = 1, block_ms: int = 1000):
+        self.read_new_calls += 1
+        return []
+
+    async def acknowledge(self, task: InvocationTask) -> int:
+        self.acked_message_ids.append(task.stream_message_id)
+        return 1
 
 
 @pytest.mark.asyncio
@@ -175,7 +209,9 @@ async def test_process_worker_once_recovers_and_processes_claimed_pending_task(
         attempts = await get_attempts(session)
 
     assert processed == 1
-    assert consumer.claim_calls == [{"min_idle_ms": 15_000, "count": 5}]
+    assert consumer.claim_calls == [
+        {"min_idle_ms": 15_000, "start_id": "0-0", "count": 2}
+    ]
     assert consumer.read_new_calls == 0
     assert consumer.acked_message_ids == [task.stream_message_id]
     assert runtime.tasks == [task]
@@ -187,6 +223,69 @@ async def test_process_worker_once_recovers_and_processes_claimed_pending_task(
         (2, InvocationAttemptStatus.SUCCEEDED),
     ]
     assert attempts[1].worker_id == current_worker.id
+
+
+@pytest.mark.asyncio
+async def test_process_worker_once_drains_all_paginated_pending_tasks(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        stale_worker = create_worker(last_heartbeat=current_time() - timedelta(seconds=60))
+        current_worker = create_worker(last_heartbeat=current_time())
+        session.add_all([stale_worker, current_worker])
+        await session.flush()
+        invocations = [
+            await create_running_invocation(session, worker=stale_worker, attempt_count=1)
+            for _ in range(3)
+        ]
+
+    tasks = [
+        make_recovery_task(invocation, index=index)
+        for index, invocation in enumerate(invocations)
+    ]
+    consumer = PaginatedClaimingConsumer(
+        {
+            "0-0": ClaimedInvocationTasks(next_start_id="cursor-2", tasks=tasks[:2]),
+            "cursor-2": ClaimedInvocationTasks(next_start_id="0-0", tasks=tasks[2:]),
+        }
+    )
+    runtime = FakeRuntimeExecutor(RuntimeExecutionResult.succeeded({"recovered": True}))
+
+    processed = await process_worker_once(
+        test_sessionmaker,
+        consumer,
+        runtime_executor_factory=lambda _session: runtime,
+        worker_id=current_worker.id,
+        stale_worker_seconds=15,
+        max_attempts=3,
+        max_concurrency=2,
+        pending_message_claim_count=10,
+    )
+
+    async with test_sessionmaker() as session:
+        recovered_invocations = list(
+            await session.scalars(
+                select(Invocation).where(
+                    Invocation.id.in_([invocation.id for invocation in invocations])
+                )
+            )
+        )
+        attempts = list(await session.scalars(select(InvocationAttempt)))
+
+    assert processed == 3
+    assert consumer.claim_calls == [
+        {"min_idle_ms": 15_000, "start_id": "0-0", "count": 2},
+        {"min_idle_ms": 15_000, "start_id": "cursor-2", "count": 2},
+    ]
+    assert consumer.read_new_calls == 0
+    assert set(consumer.acked_message_ids) == {
+        task.stream_message_id for task in tasks
+    }
+    assert all(
+        invocation.status == InvocationStatus.SUCCEEDED
+        for invocation in recovered_invocations
+    )
+    assert len(attempts) == 6
 
 
 def create_worker(*, last_heartbeat: datetime) -> Worker:
@@ -206,13 +305,16 @@ async def create_running_invocation(
     worker: Worker,
     attempt_count: int,
 ) -> Invocation:
-    user = User(
-        id=OWNER_ID,
-        email=f"recovery-{uuid4().hex}@example.local",
-        password_hash="development-only",
-    )
+    user = await session.get(User, OWNER_ID)
+    if user is None:
+        user = User(
+            id=OWNER_ID,
+            email=f"recovery-{uuid4().hex}@example.local",
+            password_hash="development-only",
+        )
+        session.add(user)
     function = Function(owner_id=OWNER_ID, name=f"hello-{uuid4().hex}")
-    session.add_all([user, function])
+    session.add(function)
     await session.flush()
 
     version = FunctionVersion(
@@ -256,6 +358,18 @@ async def create_running_invocation(
     await session.commit()
     await session.refresh(invocation)
     return invocation
+
+
+def make_recovery_task(invocation: Invocation, *, index: int) -> InvocationTask:
+    return InvocationTask(
+        stream_message_id=f"171000000000{index}-0",
+        invocation_id=invocation.id,
+        function_version_id=invocation.function_version_id,
+        owner_id=invocation.owner_id,
+        attempt_number=1,
+        queued_at=invocation.queued_at,
+        deadline_at=invocation.deadline_at,
+    )
 
 
 async def get_only_attempt(session: AsyncSession) -> InvocationAttempt:

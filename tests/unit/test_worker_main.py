@@ -41,8 +41,10 @@ class FakeInvocationTaskConsumer:
     def __init__(self, tasks) -> None:
         self.tasks = tasks
         self.acked_message_ids: list[str] = []
+        self.read_requests: list[tuple[int, int]] = []
 
     async def read_new_tasks(self, count: int = 1, block_ms: int = 1000):
+        self.read_requests.append((count, block_ms))
         return self.tasks[:count]
 
     async def acknowledge(self, task) -> int:
@@ -70,6 +72,25 @@ class FakeRuntimeExecutor:
     async def execute(self, task):
         self.tasks.append(task)
         return self.result
+
+
+class ConcurrentRuntimeExecutor:
+    def __init__(self, expected_concurrency: int) -> None:
+        self.expected_concurrency = expected_concurrency
+        self.active = 0
+        self.max_active = 0
+        self.all_started = asyncio.Event()
+
+    async def execute(self, task):
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        if self.active == self.expected_concurrency:
+            self.all_started.set()
+        try:
+            await asyncio.wait_for(self.all_started.wait(), timeout=1)
+            return RuntimeExecutionResult.succeeded({"task": task.stream_message_id})
+        finally:
+            self.active -= 1
 
 
 @pytest.mark.asyncio
@@ -147,6 +168,43 @@ async def test_process_worker_once_wires_session_processor_and_runtime(
 
 
 @pytest.mark.asyncio
+async def test_process_worker_once_runs_up_to_configured_concurrency(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        first_invocation = await create_invocation(session)
+        second_invocation = await create_invocation(session)
+
+    first_task = make_task(first_invocation, message_id="1710000000000-0")
+    second_task = make_task(second_invocation, message_id="1710000000001-0")
+    consumer = FakeInvocationTaskConsumer([first_task, second_task])
+    runtime = ConcurrentRuntimeExecutor(expected_concurrency=2)
+    runtime_state = WorkerRuntimeState()
+
+    processed = await process_worker_once(
+        test_sessionmaker,
+        consumer,
+        runtime_executor_factory=lambda _session: runtime,
+        runtime_state=runtime_state,
+        max_concurrency=2,
+    )
+
+    async with test_sessionmaker() as session:
+        attempts = list(await session.scalars(select(InvocationAttempt)))
+
+    assert processed == 2
+    assert runtime.max_active == 2
+    assert consumer.read_requests == [(2, 1000)]
+    assert set(consumer.acked_message_ids) == {
+        first_task.stream_message_id,
+        second_task.stream_message_id,
+    }
+    assert len(attempts) == 2
+    assert runtime_state.active_invocations == 0
+    assert runtime_state.status == WorkerStatus.IDLE
+
+
+@pytest.mark.asyncio
 async def test_run_heartbeat_loop_records_runtime_state(
     test_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -198,13 +256,16 @@ async def test_run_worker_loop_logs_iteration_errors_and_continues(
 
 
 async def create_invocation(session: AsyncSession) -> Invocation:
-    user = User(
-        id=OWNER_ID,
-        email=f"worker-main-{uuid4().hex}@example.local",
-        password_hash="development-only",
-    )
+    user = await session.get(User, OWNER_ID)
+    if user is None:
+        user = User(
+            id=OWNER_ID,
+            email=f"worker-main-{uuid4().hex}@example.local",
+            password_hash="development-only",
+        )
+        session.add(user)
     function = Function(owner_id=OWNER_ID, name=f"hello-{uuid4().hex}")
-    session.add_all([user, function])
+    session.add(function)
     await session.flush()
 
     version = FunctionVersion(
@@ -237,14 +298,14 @@ async def create_invocation(session: AsyncSession) -> Invocation:
     return invocation
 
 
-def make_task(invocation: Invocation):
+def make_task(invocation: Invocation, *, message_id: str = "1710000000000-0"):
     return parse_xreadgroup_response(
         [
             (
                 "invocations",
                 [
                     (
-                        "1710000000000-0",
+                        message_id,
                         {
                             "invocation_id": str(invocation.id),
                             "function_version_id": str(invocation.function_version_id),

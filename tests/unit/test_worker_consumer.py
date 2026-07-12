@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.domain.enums import InvocationAttemptStatus, InvocationStatus
+from backend.app.models.dispatch import InvocationDispatch
 from backend.app.models.function import Function, FunctionVersion
 from backend.app.models.invocation import Invocation, InvocationAttempt
 from backend.app.models.user import User
@@ -358,7 +359,7 @@ async def test_worker_task_processor_converts_runtime_exception_to_failure(
 
 
 @pytest.mark.asyncio
-async def test_worker_task_processor_retries_infrastructure_failure_without_ack(
+async def test_worker_task_processor_schedules_retry_and_acks_original_message(
     test_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     async with test_sessionmaker() as session:
@@ -370,15 +371,21 @@ async def test_worker_task_processor_retries_infrastructure_failure_without_ack(
             consumer=consumer,
             invocation_state=InvocationStateService(session),
             runtime_executor=runtime,
-            retry_policy=RetryPolicy(max_attempts=3),
+            retry_policy=RetryPolicy(max_attempts=3, jitter=lambda _upper: 0.0),
         )
 
         processed = await processor.process_once()
 
         refreshed_invocation = await session.get(Invocation, invocation.id)
         attempt = await get_only_attempt(session)
+        retry_dispatch = await session.scalar(
+            select(InvocationDispatch).where(
+                InvocationDispatch.invocation_id == invocation.id,
+                InvocationDispatch.attempt_number == 2,
+            )
+        )
         assert processed == 1
-        assert consumer.acked_message_ids == []
+        assert consumer.acked_message_ids == [task.stream_message_id]
         assert refreshed_invocation is not None
         assert refreshed_invocation.status == InvocationStatus.RETRYING
         assert refreshed_invocation.completed_at is None
@@ -387,6 +394,9 @@ async def test_worker_task_processor_retries_infrastructure_failure_without_ack(
         assert refreshed_invocation.error_message == "docker unavailable"
         assert attempt.status == InvocationAttemptStatus.FAILED
         assert attempt.error_type == "RuntimeError"
+        assert retry_dispatch is not None
+        assert retry_dispatch.available_at == attempt.completed_at + timedelta(seconds=1)
+        assert retry_dispatch.published_at is None
 
 
 @pytest.mark.asyncio

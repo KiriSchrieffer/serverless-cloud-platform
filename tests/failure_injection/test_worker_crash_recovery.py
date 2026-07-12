@@ -24,8 +24,16 @@ class PendingOnlyConsumer:
         self.read_new_calls = 0
         self.acked_message_ids: list[str] = []
 
-    async def claim_stale_tasks(self, *, min_idle_ms: int, count: int) -> ClaimedInvocationTasks:
-        self.claim_calls.append({"min_idle_ms": min_idle_ms, "count": count})
+    async def claim_stale_tasks(
+        self,
+        *,
+        min_idle_ms: int,
+        start_id: str,
+        count: int,
+    ) -> ClaimedInvocationTasks:
+        self.claim_calls.append(
+            {"min_idle_ms": min_idle_ms, "start_id": start_id, "count": count}
+        )
         return ClaimedInvocationTasks(next_start_id="0-0", tasks=[self.task])
 
     async def read_new_tasks(self, count: int = 1, block_ms: int = 1000) -> list[InvocationTask]:
@@ -98,7 +106,9 @@ async def test_pending_invocation_is_reclaimed_after_worker_crash(
         recovered_crashed_worker = await session.get(Worker, crashed_worker.id)
 
     assert processed == 1
-    assert consumer.claim_calls == [{"min_idle_ms": 15_000, "count": 5}]
+    assert consumer.claim_calls == [
+        {"min_idle_ms": 15_000, "start_id": "0-0", "count": 2}
+    ]
     assert consumer.read_new_calls == 0
     assert consumer.acked_message_ids == [task.stream_message_id]
     assert runtime.tasks == [task]

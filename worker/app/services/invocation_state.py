@@ -1,11 +1,13 @@
 """Worker-side invocation state transitions."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.domain.enums import InvocationAttemptStatus, InvocationStatus
+from backend.app.models.dispatch import InvocationDispatch
 from backend.app.models.invocation import Invocation, InvocationAttempt
 from worker.app.queue.consumer import InvocationTask
 from worker.app.runtime.docker_executor import RuntimeExecutionResult
@@ -60,7 +62,11 @@ class InvocationStateService:
         task: InvocationTask,
         worker_id: UUID | None = None,
     ) -> InvocationAttempt:
-        invocation = await self.session.get(Invocation, task.invocation_id)
+        invocation = await self.session.scalar(
+            select(Invocation)
+            .where(Invocation.id == task.invocation_id)
+            .with_for_update()
+        )
         if invocation is None or invocation.status not in {
             InvocationStatus.QUEUED,
             InvocationStatus.RETRYING,
@@ -101,7 +107,11 @@ class InvocationStateService:
             invocation_id=invocation_id,
             attempt_id=attempt_id,
             execution_result=execution_result,
-            retry_decision=RetryDecision(should_retry=False, attempts_remaining=0),
+            retry_decision=RetryDecision(
+                should_retry=False,
+                attempts_remaining=0,
+                delay_seconds=0.0,
+            ),
         )
 
     async def mark_finished(
@@ -111,8 +121,16 @@ class InvocationStateService:
         execution_result: RuntimeExecutionResult,
         retry_decision: RetryDecision,
     ) -> InvocationAttempt:
-        invocation = await self.session.get(Invocation, invocation_id)
-        attempt = await self.session.get(InvocationAttempt, attempt_id)
+        invocation = await self.session.scalar(
+            select(Invocation)
+            .where(Invocation.id == invocation_id)
+            .with_for_update()
+        )
+        attempt = await self.session.scalar(
+            select(InvocationAttempt)
+            .where(InvocationAttempt.id == attempt_id)
+            .with_for_update()
+        )
 
         if (
             invocation is None
@@ -135,6 +153,15 @@ class InvocationStateService:
             invocation.status = InvocationStatus.RETRYING
             invocation.completed_at = None
             invocation.started_at = None
+            self.session.add(
+                InvocationDispatch(
+                    invocation_id=invocation.id,
+                    attempt_number=attempt.attempt_number + 1,
+                    created_at=completed_at,
+                    available_at=completed_at
+                    + timedelta(seconds=retry_decision.delay_seconds),
+                )
+            )
         else:
             invocation.status = ATTEMPT_TO_INVOCATION_STATUS[execution_result.status]
             invocation.completed_at = completed_at

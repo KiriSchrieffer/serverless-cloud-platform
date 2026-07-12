@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.app.models.worker import Worker
 from worker.app.core.config import settings
 from worker.app.db.session import AsyncSessionLocal, engine
-from worker.app.queue.consumer import ClaimedInvocationTasks, RedisStreamConsumer
+from worker.app.queue.consumer import ClaimedInvocationTasks, InvocationTask, RedisStreamConsumer
 from worker.app.runtime.docker_executor import DockerRuntimeExecutor
 from worker.app.services.executor import (
     InvocationTaskConsumerProtocol,
@@ -47,6 +47,7 @@ async def process_worker_once(
     runtime_state: WorkerRuntimeState | None = None,
     stale_worker_seconds: int = settings.stale_worker_seconds,
     max_attempts: int = settings.default_max_attempts,
+    max_concurrency: int = settings.default_max_concurrency,
     pending_message_claim_count: int = settings.pending_message_claim_count,
 ) -> int:
     async def on_task_started(_task) -> None:
@@ -57,28 +58,56 @@ async def process_worker_once(
         if runtime_state is not None:
             runtime_state.mark_task_finished()
 
+    async def process_task(task: InvocationTask) -> int:
+        async with sessionmaker() as session:
+            processor = WorkerTaskProcessor(
+                consumer=consumer,
+                invocation_state=InvocationStateService(session),
+                runtime_executor=runtime_executor_factory(session),
+                worker_id=worker_id,
+                on_task_started=on_task_started if runtime_state is not None else None,
+                on_task_finished=on_task_finished if runtime_state is not None else None,
+                retry_policy=RetryPolicy(max_attempts=max_attempts),
+            )
+            return await processor.process_tasks([task])
+
+    async def process_task_batches(tasks: list[InvocationTask]) -> int:
+        processed_total = 0
+        for offset in range(0, len(tasks), max_concurrency):
+            batch = tasks[offset : offset + max_concurrency]
+            processed = await asyncio.gather(*(process_task(task) for task in batch))
+            processed_total += sum(processed)
+        return processed_total
+
     async with sessionmaker() as session:
-        await StaleWorkerRecoveryService(session).recover_stale_workers(
+        recovery_summary = await StaleWorkerRecoveryService(session).recover_stale_workers(
             stale_after_seconds=stale_worker_seconds,
             max_attempts=max_attempts,
         )
-        processor = WorkerTaskProcessor(
-            consumer=consumer,
-            invocation_state=InvocationStateService(session),
-            runtime_executor=runtime_executor_factory(session),
-            worker_id=worker_id,
-            on_task_started=on_task_started if runtime_state is not None else None,
-            on_task_finished=on_task_finished if runtime_state is not None else None,
-            retry_policy=RetryPolicy(max_attempts=max_attempts),
-        )
-        claimed_tasks = await claim_pending_tasks(
-            consumer,
-            min_idle_ms=stale_worker_seconds * 1000,
-            count=pending_message_claim_count,
-        )
-        if claimed_tasks.tasks:
-            return await processor.process_tasks(claimed_tasks.tasks)
-        return await processor.process_once()
+
+    recovered_total = 0
+    if recovery_summary.stale_worker_ids:
+        start_id = "0-0"
+        while True:
+            claimed_tasks = await claim_pending_tasks(
+                consumer,
+                min_idle_ms=stale_worker_seconds * 1000,
+                start_id=start_id,
+                count=min(pending_message_claim_count, max_concurrency),
+            )
+            recovered_total += await process_task_batches(claimed_tasks.tasks)
+            if claimed_tasks.next_start_id == "0-0":
+                break
+            if claimed_tasks.next_start_id == start_id and not claimed_tasks.tasks:
+                logger.warning("Pending reclaim cursor did not advance from %s", start_id)
+                break
+            start_id = claimed_tasks.next_start_id
+
+    if recovered_total:
+        return recovered_total
+
+    tasks = await consumer.read_new_tasks(count=max_concurrency, block_ms=1000)
+    return await process_task_batches(tasks)
 
 
 async def run_worker_loop(
@@ -90,6 +119,7 @@ async def run_worker_loop(
     runtime_state: WorkerRuntimeState | None = None,
     stale_worker_seconds: int = settings.stale_worker_seconds,
     max_attempts: int = settings.default_max_attempts,
+    max_concurrency: int = settings.default_max_concurrency,
     pending_message_claim_count: int = settings.pending_message_claim_count,
     max_iterations: int | None = None,
     retry_sleep_seconds: float = 1.0,
@@ -108,6 +138,7 @@ async def run_worker_loop(
                 runtime_state=runtime_state,
                 stale_worker_seconds=stale_worker_seconds,
                 max_attempts=max_attempts,
+                max_concurrency=max_concurrency,
                 pending_message_claim_count=pending_message_claim_count,
             )
             processed_total += processed
@@ -126,12 +157,17 @@ async def claim_pending_tasks(
     consumer: InvocationTaskConsumerProtocol,
     *,
     min_idle_ms: int,
+    start_id: str,
     count: int,
 ) -> ClaimedInvocationTasks:
     claim_stale_tasks = getattr(consumer, "claim_stale_tasks", None)
     if claim_stale_tasks is None:
         return ClaimedInvocationTasks(next_start_id="0-0", tasks=[])
-    return await claim_stale_tasks(min_idle_ms=min_idle_ms, count=count)
+    return await claim_stale_tasks(
+        min_idle_ms=min_idle_ms,
+        start_id=start_id,
+        count=count,
+    )
 
 
 async def register_worker(
@@ -239,6 +275,7 @@ async def run_worker() -> None:
             consumer,
             worker_id=worker.id,
             runtime_state=runtime_state,
+            max_concurrency=settings.default_max_concurrency,
         )
     finally:
         stop_event.set()

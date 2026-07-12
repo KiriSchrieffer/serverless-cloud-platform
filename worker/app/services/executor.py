@@ -84,7 +84,6 @@ class WorkerTaskProcessor:
                 execution_result=execution_result,
                 retry_decision=retry_decision,
             )
-            if not retry_decision.should_retry:
-                await self.consumer.acknowledge(task)
+            await self.consumer.acknowledge(task)
             processed += 1
         return processed
