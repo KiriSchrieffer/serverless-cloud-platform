@@ -16,8 +16,12 @@ metrics, logs, and benchmark evidence.
 - Executes user code in a Docker runtime from a worker process.
 - Stores terminal invocation status, result, error, and logs.
 - Recovers stale workers and reclaims pending Redis Stream messages.
+- Reclaims messages by stale consumer identity without stealing healthy
+  workers' long-running tasks.
 - Runs bounded concurrent invocations per worker and schedules retryable
   failures through delayed outbox records with exponential backoff and jitter.
+- Deduplicates attempt deliveries and enforces one total invocation deadline
+  across queueing, retries, and Docker execution.
 - Exposes worker health and invocation metrics APIs.
 - Provides local benchmark workloads and a reproducible benchmark report.
 

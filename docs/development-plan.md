@@ -11,8 +11,8 @@ documented verification evidence are all present.
 - Milestone 1 implementation and unit coverage are complete; real PostgreSQL
   concurrent-idempotency verification belongs to Milestone 2.
 - Milestone 3 now has bounded worker concurrency, row-locked state changes,
-  attempt uniqueness, and delayed exponential-backoff retries. Deadline-aware
-  retry execution and exact stale-consumer reclaim remain open.
+  attempt uniqueness, delayed exponential-backoff retries, total deadline
+  enforcement, duplicate-attempt suppression, and exact stale-consumer reclaim.
 
 ## Delivery Principles
 

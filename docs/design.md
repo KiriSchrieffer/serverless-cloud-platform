@@ -209,6 +209,8 @@ Queue behavior:
 - A worker acknowledges a message only after PostgreSQL stores either a
   terminal invocation state or a durable delayed outbox row for the next retry.
 - If a worker crashes, the message remains pending and can be reclaimed.
+- Worker rows persist their Redis consumer names. Recovery queries pending
+  entries for only the stale consumer and transfers them with `XCLAIM`.
 
 Delivery semantics:
 
@@ -563,6 +565,11 @@ updated_at
 4. Invocation is moved to RETRYING or QUEUED.
 5. Another worker executes the task if attempts remain.
 6. If max attempts is exceeded, invocation is marked FAILED.
+
+Recovered messages carry their original attempt number. If a durable outbox row
+already exists for the next attempt, the recovered older message is obsolete
+and is acknowledged without execution. Otherwise it represents the crashed
+attempt and may start the next attempt.
 ```
 
 ## 8. Retry Policy
@@ -573,6 +580,7 @@ Default policy:
 - Backoff: exponential backoff with jitter.
 - Initial delay: 1 second.
 - Maximum delay: 30 seconds.
+- Queueing, backoff, and all attempts share the invocation's original deadline.
 
 For retryable execution failures, the worker atomically stores the failed
 attempt, moves the invocation to `RETRYING`, and creates an attempt-aware outbox
