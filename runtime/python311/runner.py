@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import traceback
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,25 +25,30 @@ def load_handler(handler_path: str) -> Any:
 
 def main() -> None:
     handler_path = os.environ.get("HANDLER", "main.handler")
+    exit_code = 0
 
     try:
         message = json.load(sys.stdin)
         event = message.get("event", {})
         context = RuntimeContext(**message.get("context", {}))
         handler = load_handler(handler_path)
-        result = handler(event, context)
-        json.dump({"ok": True, "result": result}, sys.stdout)
+        with redirect_stdout(sys.stderr):
+            result = handler(event, context)
+        output = json.dumps({"ok": True, "result": result})
     except Exception as exc:
         traceback.print_exc(file=sys.stderr)
-        json.dump(
+        output = json.dumps(
             {
                 "ok": False,
                 "error_type": type(exc).__name__,
                 "error_message": str(exc),
-            },
-            sys.stdout,
+            }
         )
-        sys.exit(1)
+        exit_code = 1
+
+    sys.stdout.write(output)
+    if exit_code:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":
