@@ -4,10 +4,12 @@ from uuid import UUID
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.domain.enums import InvocationAttemptStatus
-from backend.app.models.invocation import InvocationAttempt
+from backend.app.models.dispatch import InvocationDispatch
+from backend.app.models.invocation import Invocation, InvocationAttempt
 
 VERSION_PAYLOAD = {
     "runtime": "python3.11",
@@ -42,7 +44,7 @@ async def create_function_version(
 @pytest.mark.asyncio
 async def test_invoke_function_creates_queued_invocation_for_latest_version(
     api_client: AsyncClient,
-    fake_invocation_queue_publisher,
+    test_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     await create_function(api_client)
     await create_function_version(api_client)
@@ -72,16 +74,13 @@ async def test_invoke_function_creates_queued_invocation_for_latest_version(
     assert invocation["function_version_id"] == latest_version["id"]
     assert invocation["attempt_count"] == 0
 
-    assert len(fake_invocation_queue_publisher.messages) == 1
-    message = fake_invocation_queue_publisher.messages[0]
-    assert message == {
-        "invocation_id": accepted["invocation_id"],
-        "function_version_id": latest_version["id"],
-        "owner_id": "00000000-0000-0000-0000-000000000001",
-        "attempt_number": "1",
-        "queued_at": invocation["queued_at"],
-        "deadline_at": invocation["deadline_at"],
-    }
+    async with test_sessionmaker() as session:
+        dispatches = list(await session.scalars(select(InvocationDispatch)))
+
+    assert len(dispatches) == 1
+    assert str(dispatches[0].invocation_id) == accepted["invocation_id"]
+    assert dispatches[0].publish_attempts == 0
+    assert dispatches[0].published_at is None
 
 
 @pytest.mark.asyncio
@@ -110,7 +109,7 @@ async def test_invoke_function_can_target_specific_version(api_client: AsyncClie
 @pytest.mark.asyncio
 async def test_invoke_function_reuses_idempotency_key(
     api_client: AsyncClient,
-    fake_invocation_queue_publisher,
+    test_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     await create_function(api_client)
     await create_function_version(api_client)
@@ -132,7 +131,12 @@ async def test_invoke_function_reuses_idempotency_key(
 
     assert status_response.status_code == 200
     assert status_response.json()["payload_inline"] == {"request": 1}
-    assert len(fake_invocation_queue_publisher.messages) == 1
+    async with test_sessionmaker() as session:
+        invocations = list(await session.scalars(select(Invocation)))
+        dispatches = list(await session.scalars(select(InvocationDispatch)))
+
+    assert len(invocations) == 1
+    assert len(dispatches) == 1
 
 
 @pytest.mark.asyncio
@@ -317,26 +321,31 @@ async def test_get_invocation_logs_returns_404_when_log_file_is_missing(
 
 
 @pytest.mark.asyncio
-async def test_invoke_function_rolls_back_invocation_when_queue_publish_fails(
+async def test_invoke_function_is_durably_accepted_before_queue_dispatch(
     api_client: AsyncClient,
-    fake_invocation_queue_publisher,
+    test_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     await create_function(api_client)
     await create_function_version(api_client)
-    fake_invocation_queue_publisher.fail_next = True
 
     response = await api_client.post(
         "/functions/hello/invoke",
         json={"payload": {"name": "Ada"}},
     )
 
-    assert response.status_code == 503
-    assert len(fake_invocation_queue_publisher.messages) == 1
+    assert response.status_code == 202
+    invocation_id = UUID(response.json()["invocation_id"])
+    async with test_sessionmaker() as session:
+        invocation = await session.get(Invocation, invocation_id)
+        dispatch = await session.scalar(
+            select(InvocationDispatch).where(
+                InvocationDispatch.invocation_id == invocation_id
+            )
+        )
 
-    attempted_invocation_id = fake_invocation_queue_publisher.messages[0]["invocation_id"]
-    status_response = await api_client.get(f"/invocations/{attempted_invocation_id}")
-
-    assert status_response.status_code == 404
+    assert invocation is not None
+    assert dispatch is not None
+    assert dispatch.published_at is None
 
 
 async def create_attempt(

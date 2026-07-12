@@ -5,10 +5,12 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.domain.enums import InvocationStatus
 from backend.app.models.function import Function, FunctionVersion
+from backend.app.models.dispatch import InvocationDispatch
 from backend.app.models.invocation import Invocation, InvocationAttempt
 from backend.app.services.function_registry import FunctionNotFoundError
 
@@ -72,15 +74,27 @@ class InvocationService:
             attempt_count=0,
         )
         self.session.add(invocation)
-        await self.session.flush()
-        return InvocationCreateResult(invocation=invocation, created=True)
+        self.session.add(
+            InvocationDispatch(
+                invocation=invocation,
+                attempt_number=1,
+                created_at=queued_at,
+                available_at=queued_at,
+            )
+        )
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            if idempotency_key is None:
+                raise
+            existing = await self.get_invocation_by_idempotency_key(owner_id, idempotency_key)
+            if existing is None:
+                raise
+            return InvocationCreateResult(invocation=existing, created=False)
 
-    async def commit_invocation(self, invocation: Invocation) -> None:
-        await self.session.commit()
         await self.session.refresh(invocation)
-
-    async def rollback(self) -> None:
-        await self.session.rollback()
+        return InvocationCreateResult(invocation=invocation, created=True)
 
     async def get_invocation(self, owner_id: UUID, invocation_id: UUID) -> Invocation:
         result = await self.session.scalars(

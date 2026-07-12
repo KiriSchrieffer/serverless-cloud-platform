@@ -1,6 +1,7 @@
 """SQLAlchemy models for users, functions, invocations, attempts, and workers."""
 
 from backend.app.models.base import Base
+from backend.app.models.dispatch import InvocationDispatch
 from backend.app.models.function import Function, FunctionVersion
 from backend.app.models.invocation import Invocation, InvocationAttempt
 from backend.app.models.user import User
@@ -12,6 +13,7 @@ __all__ = [
     "FunctionVersion",
     "Invocation",
     "InvocationAttempt",
+    "InvocationDispatch",
     "User",
     "Worker",
 ]

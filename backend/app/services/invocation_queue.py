@@ -15,16 +15,25 @@ class InvocationQueuePublishError(Exception):
 
 
 class InvocationQueuePublisherProtocol(Protocol):
-    async def publish_invocation(self, invocation: Invocation) -> str:
+    async def publish_invocation(
+        self,
+        invocation: Invocation,
+        *,
+        attempt_number: int = 1,
+    ) -> str:
         """Publish an accepted invocation task and return the stream message id."""
 
 
-def build_invocation_message_fields(invocation: Invocation) -> dict[str, str]:
+def build_invocation_message_fields(
+    invocation: Invocation,
+    *,
+    attempt_number: int = 1,
+) -> dict[str, str]:
     return {
         "invocation_id": str(invocation.id),
         "function_version_id": str(invocation.function_version_id),
         "owner_id": str(invocation.owner_id),
-        "attempt_number": "1",
+        "attempt_number": str(attempt_number),
         "queued_at": invocation.queued_at.isoformat(),
         "deadline_at": invocation.deadline_at.isoformat(),
     }
@@ -35,8 +44,16 @@ class RedisInvocationQueuePublisher:
         self.redis = redis
         self.stream_name = stream_name
 
-    async def publish_invocation(self, invocation: Invocation) -> str:
-        fields = build_invocation_message_fields(invocation)
+    async def publish_invocation(
+        self,
+        invocation: Invocation,
+        *,
+        attempt_number: int = 1,
+    ) -> str:
+        fields = build_invocation_message_fields(
+            invocation,
+            attempt_number=attempt_number,
+        )
 
         try:
             message_id = await self.redis.xadd(self.stream_name, fields)

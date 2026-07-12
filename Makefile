@@ -20,7 +20,7 @@ benchmark:
 runtime-image:
 	docker build -t serverless-python311-runtime:latest -f runtime/python311/Dockerfile .
 
-compose-up: runtime-image
+compose-up:
 	docker compose up --build
 
 compose-down:

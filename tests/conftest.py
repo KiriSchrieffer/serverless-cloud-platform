@@ -10,7 +10,6 @@ from sqlalchemy.pool import StaticPool
 
 from backend.app.api.dependencies import (
     get_db_session,
-    get_invocation_queue_publisher,
     get_log_storage_service,
     get_package_storage_service,
 )
@@ -29,8 +28,16 @@ class FakeInvocationQueuePublisher:
         self.messages: list[dict[str, str]] = []
         self.fail_next = False
 
-    async def publish_invocation(self, invocation: Invocation) -> str:
-        fields = build_invocation_message_fields(invocation)
+    async def publish_invocation(
+        self,
+        invocation: Invocation,
+        *,
+        attempt_number: int = 1,
+    ) -> str:
+        fields = build_invocation_message_fields(
+            invocation,
+            attempt_number=attempt_number,
+        )
         if self.fail_next:
             self.fail_next = False
             self.messages.append(fields)
@@ -64,7 +71,6 @@ def fake_invocation_queue_publisher() -> FakeInvocationQueuePublisher:
 @pytest.fixture()
 async def api_client(
     test_sessionmaker: async_sessionmaker[AsyncSession],
-    fake_invocation_queue_publisher: FakeInvocationQueuePublisher,
     tmp_path: Path,
 ) -> AsyncIterator[AsyncClient]:
     app = create_app()
@@ -74,9 +80,6 @@ async def api_client(
             yield session
 
     app.dependency_overrides[get_db_session] = override_db_session
-    app.dependency_overrides[get_invocation_queue_publisher] = (
-        lambda: fake_invocation_queue_publisher
-    )
     app.dependency_overrides[get_package_storage_service] = lambda: LocalPackageStorageService(
         package_storage_dir=tmp_path / "packages",
         workspace_root=tmp_path,

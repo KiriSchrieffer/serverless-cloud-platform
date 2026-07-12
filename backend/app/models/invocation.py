@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -23,7 +24,12 @@ class Invocation(TimestampMixin, Base):
     __tablename__ = "invocations"
     __table_args__ = (
         Index("ix_invocations_owner_status_created", "owner_id", "status", "created_at"),
-        Index("ix_invocations_idempotency_key", "owner_id", "idempotency_key"),
+        Index(
+            "uq_invocations_owner_idempotency_key",
+            "owner_id",
+            "idempotency_key",
+            unique=True,
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -71,12 +77,22 @@ class Invocation(TimestampMixin, Base):
         cascade="all, delete-orphan",
         order_by="InvocationAttempt.attempt_number",
     )
+    dispatches = relationship(
+        "InvocationDispatch",
+        back_populates="invocation",
+        cascade="all, delete-orphan",
+        order_by="InvocationDispatch.attempt_number",
+    )
 
 
 class InvocationAttempt(Base):
     __tablename__ = "invocation_attempts"
     __table_args__ = (
-        Index("ix_invocation_attempts_invocation_attempt", "invocation_id", "attempt_number"),
+        UniqueConstraint(
+            "invocation_id",
+            "attempt_number",
+            name="uq_invocation_attempts_invocation_attempt",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)

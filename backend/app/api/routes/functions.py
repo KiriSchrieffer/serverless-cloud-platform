@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from backend.app.api.dependencies import (
     get_current_user_id,
     get_function_registry_service,
-    get_invocation_queue_publisher,
     get_invocation_service,
     get_package_storage_service,
 )
@@ -23,10 +22,6 @@ from backend.app.services.function_registry import (
     FunctionNameAlreadyExistsError,
     FunctionRegistryService,
     FunctionVersionConflictError,
-)
-from backend.app.services.invocation_queue import (
-    InvocationQueuePublishError,
-    InvocationQueuePublisherProtocol,
 )
 from backend.app.services.invocations import FunctionVersionNotFoundError, InvocationService
 from backend.app.services.storage import LocalPackageStorageService, PackageValidationError
@@ -178,10 +173,6 @@ async def invoke_function(
     payload: InvocationCreate,
     owner_id: Annotated[UUID, Depends(get_current_user_id)],
     invocations: Annotated[InvocationService, Depends(get_invocation_service)],
-    publisher: Annotated[
-        InvocationQueuePublisherProtocol,
-        Depends(get_invocation_queue_publisher),
-    ],
 ) -> InvocationAccepted:
     try:
         result = await invocations.create_invocation(
@@ -192,9 +183,6 @@ async def invoke_function(
             version_number=payload.version_number,
         )
         invocation = result.invocation
-        if result.created:
-            await publisher.publish_invocation(invocation)
-            await invocations.commit_invocation(invocation)
     except FunctionNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -206,13 +194,6 @@ async def invoke_function(
         else:
             detail = f"Function '{exc.function_name}' version {exc.version_number} not found"
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail) from exc
-    except InvocationQueuePublishError as exc:
-        await invocations.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to enqueue invocation '{exc.invocation_id}'",
-        ) from exc
-
     return InvocationAccepted(
         invocation_id=invocation.id,
         status=invocation.status,

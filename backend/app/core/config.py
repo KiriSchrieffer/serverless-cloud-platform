@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     invocation_stream: str = "invocations"
     invocation_consumer_group: str = "workers"
+    dispatch_poll_seconds: float = 0.25
+    dispatch_batch_size: int = 100
     package_storage_dir: str = "storage/packages"
     result_storage_dir: str = "storage/results"
     log_storage_dir: str = "storage/logs"
