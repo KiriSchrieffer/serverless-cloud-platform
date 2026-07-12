@@ -4,7 +4,7 @@ A lightweight Lambda-style serverless platform for local development and systems
 experiments. The project demonstrates function registration, immutable version
 uploads, asynchronous invocation dispatch through Redis Streams, worker
 heartbeats, Docker-based Python runtime execution, retry/recovery behavior,
-metrics, logs, and benchmark evidence.
+JWT authentication, Redis rate limiting, metrics, logs, and benchmark evidence.
 
 ## What It Does
 
@@ -22,6 +22,10 @@ metrics, logs, and benchmark evidence.
   failures through delayed outbox records with exponential backoff and jitter.
 - Deduplicates attempt deliveries and enforces one total invocation deadline
   across queueing, retries, and Docker execution.
+- Authenticates API users with bcrypt password hashes and signed JWT access
+  tokens; owner identity never comes from a caller-supplied owner header.
+- Applies an atomic Redis token bucket before invocation records enter the
+  transactional outbox, with a default limit of 100 invocations per minute.
 - Exposes worker health and invocation metrics APIs.
 - Provides local benchmark workloads and a reproducible benchmark report.
 
@@ -118,10 +122,21 @@ Expected terminal state is `SUCCEEDED`, with a result similar to:
 
 ## Useful API Calls
 
+Register and obtain a local access token:
+
+```bash
+curl -fsS -X POST http://localhost:8000/auth/register -H "Content-Type: application/json" -d '{"email":"demo@example.local","password":"local-demo-password"}'
+```
+
+```bash
+export ACCESS_TOKEN="$(curl -fsS -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d '{"email":"demo@example.local","password":"local-demo-password"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
+```
+
 Create a function:
 
 ```bash
 curl -fsS -X POST http://localhost:8000/functions \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"hello"}'
 ```
@@ -130,6 +145,7 @@ Invoke a function:
 
 ```bash
 curl -fsS -X POST http://localhost:8000/functions/hello/invoke \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"payload":{"name":"Ada"},"idempotency_key":"demo-hello"}'
 ```
@@ -137,20 +153,20 @@ curl -fsS -X POST http://localhost:8000/functions/hello/invoke \
 Query an invocation:
 
 ```bash
-curl -fsS http://localhost:8000/invocations/<invocation_id>
+curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:8000/invocations/<invocation_id>
 ```
 
 Query invocation logs:
 
 ```bash
-curl -fsS http://localhost:8000/invocations/<invocation_id>/logs
+curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:8000/invocations/<invocation_id>/logs
 ```
 
 Query workers and metrics:
 
 ```bash
-curl -fsS http://localhost:8000/workers
-curl -fsS http://localhost:8000/metrics/summary
+curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:8000/workers
+curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:8000/metrics/summary
 ```
 
 ## Benchmarks
@@ -163,6 +179,10 @@ python3 benchmarks/run_benchmark.py \
   --invocations 100 \
   --concurrency 10
 ```
+
+The benchmark runner registers and logs in with local defaults. Override them
+with `BENCHMARK_EMAIL` and `BENCHMARK_PASSWORD`; credentials are never written
+to benchmark JSON or Markdown reports.
 
 Latest recorded local Docker Compose results:
 
@@ -226,6 +246,7 @@ git diff --check
 Current test coverage includes:
 
 - API health and function registry behavior
+- registration, password hashing, JWT validation, user isolation, and rate limits
 - package upload and invocation creation
 - Redis Streams producer/consumer parsing
 - Docker runtime executor behavior
@@ -236,7 +257,8 @@ Current test coverage includes:
 
 ## Current Limits
 
-- Authentication is intentionally simplified for local development.
+- The access token is stored in browser session storage for this local MVP;
+  production deployment would use a hardened cookie/session strategy and secret management.
 - Docker runtime isolation is not production-grade sandboxing.
 - Autoscaling and Kubernetes scheduling are out of scope for this MVP.
-- The dashboard is an MVP interface and does not include authentication flows.
+- API keys, refresh tokens, password reset, and account administration are not implemented.

@@ -369,8 +369,13 @@ Recommended behavior:
 MVP authentication:
 
 - Email and password login.
-- Passwords stored as hashes.
-- JWT access tokens for API calls.
+- Passwords stored as bcrypt hashes with an explicit 72-byte input boundary.
+- Signed JWT access tokens carry issuer, audience, expiry, and user subject claims.
+- Protected APIs derive ownership only from the Bearer token. `X-Owner-Id` is
+  not accepted in production dependencies.
+- Missing/invalid credentials return 401; a valid token for an unavailable
+  account returns 403. Owner-scoped missing resources return 404 to avoid
+  disclosing another user's resources.
 
 Rate limiting:
 
@@ -378,6 +383,9 @@ Rate limiting:
 - Optional token bucket per function.
 - Default limit: 100 invocations per minute per user.
 - Return HTTP 429 before creating a queue task if the limit is exceeded.
+- Use one atomic Redis Lua operation and Redis server time for refill and
+  consumption, so concurrent API processes cannot overspend a bucket.
+- Fail closed with 503 when Redis cannot enforce the invocation limit.
 
 API keys can be added later for CLI and programmatic invocation.
 

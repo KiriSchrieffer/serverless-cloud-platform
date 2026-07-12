@@ -13,6 +13,10 @@ documented verification evidence are all present.
 - Milestone 3 now has bounded worker concurrency, row-locked state changes,
   attempt uniqueness, delayed exponential-backoff retries, total deadline
   enforcement, duplicate-attempt suppression, and exact stale-consumer reclaim.
+- Milestone 4 implementation and unit coverage are complete: bcrypt registration,
+  JWT login, token-derived ownership, cross-user isolation, an atomic Redis
+  invocation token bucket, and dashboard authentication are present. Real Redis
+  verification remains part of Milestone 2 and release-candidate testing.
 
 ## Delivery Principles
 
