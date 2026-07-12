@@ -2,13 +2,17 @@
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from uuid import UUID
 
 import pytest
+from fastapi import Header, HTTPException, status
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from backend.app.api.dependencies import (
+    enforce_invocation_rate_limit,
+    get_current_user_id,
     get_db_session,
     get_log_storage_service,
     get_package_storage_service,
@@ -21,6 +25,8 @@ from backend.app.services.invocation_queue import (
     build_invocation_message_fields,
 )
 from backend.app.services.storage import LocalLogStorageService, LocalPackageStorageService
+
+DEVELOPMENT_OWNER_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 class FakeInvocationQueuePublisher:
@@ -79,7 +85,22 @@ async def api_client(
         async with test_sessionmaker() as session:
             yield session
 
+    async def override_current_user_id(
+        x_owner_id: str | None = Header(default=None, alias="X-Owner-Id"),
+    ) -> UUID:
+        if x_owner_id is None:
+            return DEVELOPMENT_OWNER_ID
+        try:
+            return UUID(x_owner_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="X-Owner-Id must be a valid UUID",
+            ) from exc
+
     app.dependency_overrides[get_db_session] = override_db_session
+    app.dependency_overrides[get_current_user_id] = override_current_user_id
+    app.dependency_overrides[enforce_invocation_rate_limit] = lambda: None
     app.dependency_overrides[get_package_storage_service] = lambda: LocalPackageStorageService(
         package_storage_dir=tmp_path / "packages",
         workspace_root=tmp_path,

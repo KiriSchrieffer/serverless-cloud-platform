@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from backend.app.api.dependencies import (
+    enforce_invocation_rate_limit,
     get_current_user_id,
     get_function_registry_service,
     get_invocation_service,
@@ -172,6 +173,7 @@ async def invoke_function(
     function_name: str,
     payload: InvocationCreate,
     owner_id: Annotated[UUID, Depends(get_current_user_id)],
+    _: Annotated[None, Depends(enforce_invocation_rate_limit)],
     invocations: Annotated[InvocationService, Depends(get_invocation_service)],
 ) -> InvocationAccepted:
     try:

@@ -10,9 +10,9 @@ requires-python = ">=3.11"
 dependencies = [
   "alembic",
   "asyncpg",
+  "bcrypt",
   "fastapi",
   "greenlet",
-  "passlib[bcrypt]",
   "pydantic-settings",
   "python-jose[cryptography]",
   "python-multipart",
