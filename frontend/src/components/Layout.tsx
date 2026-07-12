@@ -2,9 +2,10 @@ import type { ReactNode } from "react";
 
 type LayoutProps = {
   children: ReactNode;
+  onLogout: () => void;
 };
 
-export function Layout({ children }: LayoutProps) {
+export function Layout({ children, onLogout }: LayoutProps) {
   return (
     <main className="shell">
       <aside className="sidebar">
@@ -15,6 +16,9 @@ export function Layout({ children }: LayoutProps) {
           <a href="#workers">Workers</a>
           <a href="#metrics">Metrics</a>
         </nav>
+        <button className="logout-button" type="button" onClick={onLogout}>
+          Sign out
+        </button>
       </aside>
       <section className="content">{children}</section>
     </main>

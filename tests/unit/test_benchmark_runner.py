@@ -2,6 +2,7 @@ import io
 import zipfile
 
 from benchmarks.run_benchmark import (
+    ApiClient,
     BenchmarkConfig,
     BenchmarkReport,
     InvocationSample,
@@ -10,6 +11,47 @@ from benchmarks.run_benchmark import (
     render_markdown_report,
     summarize_samples,
 )
+
+
+class RecordingApiClient(ApiClient):
+    def __init__(self) -> None:
+        super().__init__("http://testserver", timeout_seconds=1)
+        self.calls: list[tuple[str, str, object, tuple[int, ...]]] = []
+
+    def json_request(
+        self,
+        method: str,
+        path: str,
+        payload: object | None = None,
+        *,
+        expected_statuses: tuple[int, ...] = (200,),
+    ) -> tuple[int, object]:
+        self.calls.append((method, path, payload, expected_statuses))
+        if path == "/auth/login":
+            return 200, {"access_token": "signed-token"}
+        return 201, {"id": "user-id"}
+
+
+def test_api_client_registers_and_logs_in_without_storing_password_in_config() -> None:
+    client = RecordingApiClient()
+
+    client.authenticate("benchmark@example.local", "benchmark-password")
+
+    assert client.access_token == "signed-token"
+    assert client.calls == [
+        (
+            "POST",
+            "/auth/register",
+            {"email": "benchmark@example.local", "password": "benchmark-password"},
+            (201, 409),
+        ),
+        (
+            "POST",
+            "/auth/login",
+            {"email": "benchmark@example.local", "password": "benchmark-password"},
+            (200,),
+        ),
+    ]
 
 
 def test_summarize_samples_calculates_rates_and_latency_percentiles() -> None:

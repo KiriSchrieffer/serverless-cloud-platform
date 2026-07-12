@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import socket
 import time
 import urllib.error
@@ -85,6 +86,21 @@ class ApiClient:
     def __init__(self, api_url: str, *, timeout_seconds: float) -> None:
         self.api_url = api_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.access_token: str | None = None
+
+    def authenticate(self, email: str, password: str) -> None:
+        self.json_request(
+            "POST",
+            "/auth/register",
+            {"email": email, "password": password},
+            expected_statuses=(201, 409),
+        )
+        _, token = self.json_request(
+            "POST",
+            "/auth/login",
+            {"email": email, "password": password},
+        )
+        self.access_token = token["access_token"]
 
     def json_request(
         self,
@@ -99,6 +115,8 @@ class ApiClient:
         if payload is not None:
             data = json.dumps(payload).encode("utf-8")
             headers["Content-Type"] = "application/json"
+        if self.access_token is not None:
+            headers["Authorization"] = f"Bearer {self.access_token}"
         return self.request(
             method,
             path,
@@ -117,11 +135,14 @@ class ApiClient:
         expected_statuses: tuple[int, ...] = (200,),
     ) -> tuple[int, Any]:
         body, content_type = encode_multipart(fields=fields, files=files)
+        headers = {"Accept": "application/json", "Content-Type": content_type}
+        if self.access_token is not None:
+            headers["Authorization"] = f"Bearer {self.access_token}"
         return self.request(
             method,
             path,
             data=body,
-            headers={"Accept": "application/json", "Content-Type": content_type},
+            headers=headers,
             expected_statuses=expected_statuses,
         )
 
@@ -173,6 +194,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--poll-interval-seconds", type=positive_float, default=0.25)
     parser.add_argument("--poll-timeout-seconds", type=positive_float, default=120.0)
     parser.add_argument("--http-timeout-seconds", type=positive_float, default=15.0)
+    parser.add_argument(
+        "--auth-email",
+        default=os.getenv(
+            "BENCHMARK_EMAIL",
+            f"benchmark-{uuid.uuid4().hex[:12]}@example.local",
+        ),
+    )
+    parser.add_argument(
+        "--auth-password",
+        default=os.getenv("BENCHMARK_PASSWORD", "local-benchmark-password"),
+    )
     parser.add_argument("--report-path", type=Path, default=DEFAULT_REPORT_PATH)
     parser.add_argument("--json-output-path", type=Path, default=DEFAULT_JSON_OUTPUT_PATH)
     return parser.parse_args()
@@ -305,8 +337,14 @@ def prepare_function(api: ApiClient, config: BenchmarkConfig) -> dict[str, Any]:
     return version
 
 
-def run_benchmark(config: BenchmarkConfig) -> BenchmarkReport:
+def run_benchmark(
+    config: BenchmarkConfig,
+    *,
+    auth_email: str,
+    auth_password: str,
+) -> BenchmarkReport:
     api = ApiClient(config.api_url, timeout_seconds=config.http_timeout_seconds)
+    api.authenticate(auth_email, auth_password)
     prepare_function(api, config)
 
     idempotency_prefix = f"{config.workload}-{timestamp_for_key()}-{uuid.uuid4().hex[:8]}"
@@ -612,7 +650,11 @@ def timestamp_for_key() -> str:
 def main() -> None:
     args = parse_args()
     config = build_config(args)
-    report = run_benchmark(config)
+    report = run_benchmark(
+        config,
+        auth_email=args.auth_email,
+        auth_password=args.auth_password,
+    )
     write_report(report, report_path=args.report_path, json_output_path=args.json_output_path)
     print(render_markdown_report(report))
     print(f"Wrote markdown report to {args.report_path}")

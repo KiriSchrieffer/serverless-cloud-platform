@@ -1,4 +1,6 @@
 export const API_BASE_URL = "/api";
+const ACCESS_TOKEN_KEY = "serverless.access-token";
+export const AUTH_REQUIRED_EVENT = "serverless:auth-required";
 
 export type JsonValue =
   | Record<string, unknown>
@@ -101,32 +103,94 @@ export type MetricsSummary = {
   };
 };
 
-export async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      Accept: "application/json",
-    },
+export type UserRead = {
+  id: string;
+  email: string;
+  created_at: string;
+};
+
+export type TokenResponse = {
+  access_token: string;
+  token_type: "bearer";
+  expires_in: number;
+};
+
+export function getAccessToken(): string | null {
+  return window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
+export function setAccessToken(token: string): void {
+  window.sessionStorage.setItem(ACCESS_TOKEN_KEY, token);
+}
+
+export function clearAccessToken(): void {
+  window.sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+}
+
+export function register(email: string, password: string): Promise<UserRead> {
+  return requestJson<UserRead>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
   });
+}
 
-  if (!response.ok) {
-    throw new Error(await responseErrorMessage(response));
-  }
+export function login(email: string, password: string): Promise<TokenResponse> {
+  return requestJson<TokenResponse>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
 
-  return response.json() as Promise<T>;
+export async function fetchJson<T>(path: string): Promise<T> {
+  return requestJson<T>(path);
 }
 
 export async function fetchText(path: string): Promise<string> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      Accept: "text/plain",
-    },
+    headers: requestHeaders("text/plain"),
   });
 
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response));
   }
 
   return response.text();
+}
+
+async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      ...requestHeaders("application/json"),
+      ...init.headers,
+    },
+  });
+
+  handleUnauthorized(response);
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response));
+  }
+  return response.json() as Promise<T>;
+}
+
+function requestHeaders(accept: string): Record<string, string> {
+  const headers: Record<string, string> = { Accept: accept };
+  const token = getAccessToken();
+  if (accept === "application/json") {
+    headers["Content-Type"] = "application/json";
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+function handleUnauthorized(response: Response): void {
+  if (response.status === 401 && getAccessToken()) {
+    clearAccessToken();
+    window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+  }
 }
 
 export function listFunctions(): Promise<FunctionRead[]> {
