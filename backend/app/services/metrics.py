@@ -130,6 +130,7 @@ class PlatformMetricsService:
         return WorkerRead(
             id=worker.id,
             hostname=worker.hostname,
+            consumer_name=worker.consumer_name,
             status=worker.status,
             last_heartbeat=worker.last_heartbeat,
             heartbeat_age_seconds=heartbeat_age_seconds,

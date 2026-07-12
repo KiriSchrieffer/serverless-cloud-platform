@@ -3,7 +3,9 @@
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -108,7 +110,7 @@ class RuntimeInvocationSpec:
     payload: JsonValue
     memory_limit_mb: int
     cpu_limit: float
-    timeout_seconds: int
+    timeout_seconds: float
 
 
 class RuntimeInvocationNotFoundError(Exception):
@@ -128,6 +130,7 @@ class DockerRuntimeExecutor:
         storage_root: Path | str = settings.storage_root,
         max_inline_result_bytes: int = settings.max_inline_result_bytes,
         max_log_bytes: int = settings.max_log_bytes,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.session = session
         self.docker_client = docker_client
@@ -136,13 +139,28 @@ class DockerRuntimeExecutor:
         self.storage_root = self.resolve_path(storage_root)
         self.max_inline_result_bytes = max_inline_result_bytes
         self.max_log_bytes = max_log_bytes
+        self.clock = clock or self.utcnow
 
     async def execute(self, task: InvocationTask) -> RuntimeExecutionResult:
         """Execute one invocation task inside a Docker runtime container."""
-        spec = await self.load_invocation_spec(task)
+        remaining_seconds = self.remaining_deadline_seconds(task)
+        if remaining_seconds <= 0:
+            return RuntimeExecutionResult.timed_out(
+                "Invocation deadline exceeded before runtime start",
+                duration_ms=0,
+            )
+        spec = await self.load_invocation_spec(
+            task,
+            remaining_seconds=remaining_seconds,
+        )
         return await asyncio.to_thread(self.execute_container, spec)
 
-    async def load_invocation_spec(self, task: InvocationTask) -> RuntimeInvocationSpec:
+    async def load_invocation_spec(
+        self,
+        task: InvocationTask,
+        *,
+        remaining_seconds: float,
+    ) -> RuntimeInvocationSpec:
         result = await self.session.execute(
             select(Invocation, FunctionVersion, Function)
             .join(
@@ -170,7 +188,7 @@ class DockerRuntimeExecutor:
             payload=invocation.payload_inline,
             memory_limit_mb=version.memory_limit_mb,
             cpu_limit=float(version.cpu_limit),
-            timeout_seconds=version.timeout_seconds,
+            timeout_seconds=min(float(version.timeout_seconds), remaining_seconds),
         )
 
     def execute_container(self, spec: RuntimeInvocationSpec) -> RuntimeExecutionResult:
@@ -230,7 +248,7 @@ class DockerRuntimeExecutor:
 
             logs_ref = self.write_logs(spec.invocation_id, stderr)
             return RuntimeExecutionResult.timed_out(
-                f"Invocation exceeded {spec.timeout_seconds}s timeout",
+                f"Invocation exceeded {spec.timeout_seconds:g}s timeout",
                 duration_ms=duration_ms,
                 logs_ref=logs_ref,
                 container_id=getattr(container, "id", None),
@@ -269,7 +287,7 @@ class DockerRuntimeExecutor:
                 "invocation_id": str(spec.invocation_id),
                 "function_name": spec.function_name,
                 "function_version": str(spec.function_version),
-                "deadline_ms": spec.timeout_seconds * 1000,
+                "deadline_ms": int(spec.timeout_seconds * 1000),
                 "memory_limit_mb": spec.memory_limit_mb,
             },
         }
@@ -414,6 +432,13 @@ class DockerRuntimeExecutor:
         if resolved.is_absolute():
             return resolved
         return (self.workspace_root / resolved).resolve()
+
+    def remaining_deadline_seconds(self, task: InvocationTask) -> float:
+        return max(0.0, (task.deadline_at - self.clock()).total_seconds())
+
+    @staticmethod
+    def utcnow() -> datetime:
+        return datetime.now(UTC).replace(tzinfo=None)
 
     def get_docker_client(self) -> Any:
         if self.docker_client is None:

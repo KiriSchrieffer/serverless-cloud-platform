@@ -86,7 +86,23 @@ async def process_worker_once(
         )
 
     recovered_total = 0
-    if recovery_summary.stale_worker_ids:
+    if recovery_summary.stale_consumer_names:
+        claim_count = min(pending_message_claim_count, max_concurrency)
+        while True:
+            recovered_tasks = await claim_tasks_from_consumers(
+                consumer,
+                consumer_names=recovery_summary.stale_consumer_names,
+                min_idle_ms=0,
+                count=claim_count,
+            )
+            if not recovered_tasks:
+                break
+            recovered_total += await process_task_batches(recovered_tasks)
+            if len(recovered_tasks) < claim_count:
+                break
+    if len(recovery_summary.stale_consumer_names) < len(recovery_summary.stale_worker_ids):
+        # Compatibility path for worker records created before consumer identity
+        # was persisted. New workers always use exact consumer-scoped reclaim.
         start_id = "0-0"
         while True:
             claimed_tasks = await claim_pending_tasks(
@@ -102,6 +118,12 @@ async def process_worker_once(
                 logger.warning("Pending reclaim cursor did not advance from %s", start_id)
                 break
             start_id = claimed_tasks.next_start_id
+
+    if recovery_summary.stale_worker_ids:
+        async with sessionmaker() as session:
+            await StaleWorkerRecoveryService(session).mark_workers_offline(
+                recovery_summary.stale_worker_ids
+            )
 
     if recovered_total:
         return recovered_total
@@ -170,16 +192,35 @@ async def claim_pending_tasks(
     )
 
 
+async def claim_tasks_from_consumers(
+    consumer: InvocationTaskConsumerProtocol,
+    *,
+    consumer_names: list[str],
+    min_idle_ms: int,
+    count: int,
+) -> list[InvocationTask]:
+    claim_tasks = getattr(consumer, "claim_tasks_from_consumers", None)
+    if claim_tasks is None:
+        return []
+    return await claim_tasks(
+        consumer_names=consumer_names,
+        min_idle_ms=min_idle_ms,
+        count=count,
+    )
+
+
 async def register_worker(
     sessionmaker: async_sessionmaker[AsyncSession],
     *,
     hostname: str,
     max_concurrency: int,
+    consumer_name: str | None = None,
 ) -> Worker:
     async with sessionmaker() as session:
         return await WorkerHeartbeatService(session).register_worker(
             hostname=hostname,
             max_concurrency=max_concurrency,
+            consumer_name=consumer_name,
         )
 
 
@@ -249,6 +290,7 @@ async def run_worker() -> None:
         AsyncSessionLocal,
         hostname=socket.gethostname(),
         max_concurrency=settings.default_max_concurrency,
+        consumer_name=consumer_name,
     )
     runtime_state = WorkerRuntimeState()
     stop_event = asyncio.Event()

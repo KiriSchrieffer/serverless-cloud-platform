@@ -34,7 +34,11 @@ async def test_worker_heartbeat_service_registers_and_updates_worker(
 ) -> None:
     async with test_sessionmaker() as session:
         service = WorkerHeartbeatService(session)
-        worker = await service.register_worker(hostname="worker-host", max_concurrency=2)
+        worker = await service.register_worker(
+            hostname="worker-host",
+            max_concurrency=2,
+            consumer_name="worker-host-consumer",
+        )
         first_heartbeat = worker.last_heartbeat
 
         refreshed = await service.record_heartbeat(
@@ -44,6 +48,7 @@ async def test_worker_heartbeat_service_registers_and_updates_worker(
         )
 
         assert refreshed.hostname == "worker-host"
+        assert refreshed.consumer_name == "worker-host-consumer"
         assert refreshed.status == WorkerStatus.RUNNING
         assert refreshed.active_invocations == 1
         assert refreshed.max_concurrency == 2

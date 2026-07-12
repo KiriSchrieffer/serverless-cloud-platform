@@ -64,6 +64,7 @@ export type InvocationStatus =
 export type WorkerRead = {
   id: string;
   hostname: string;
+  consumer_name: string | null;
   status: WorkerStatus;
   last_heartbeat: string;
   heartbeat_age_seconds: number;

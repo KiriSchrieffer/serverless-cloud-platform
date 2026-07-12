@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -282,7 +282,7 @@ async def create_invocation(session: AsyncSession) -> Invocation:
     session.add(version)
     await session.flush()
 
-    queued_at = datetime(2026, 7, 2, 10, 0, 0)
+    queued_at = datetime.now(UTC).replace(tzinfo=None)
     invocation = Invocation(
         owner_id=OWNER_ID,
         function_version_id=version.id,

@@ -11,7 +11,7 @@ from backend.app.models.invocation import Invocation, InvocationAttempt
 from backend.app.models.user import User
 from backend.app.models.worker import Worker
 from worker.app.main import process_worker_once
-from worker.app.queue.consumer import ClaimedInvocationTasks, InvocationTask
+from worker.app.queue.consumer import InvocationTask
 from worker.app.runtime.docker_executor import RuntimeExecutionResult
 from worker.app.services.recovery import StaleWorkerRecoveryService
 
@@ -25,17 +25,21 @@ class ClaimingInvocationTaskConsumer:
         self.read_new_calls = 0
         self.acked_message_ids: list[str] = []
 
-    async def claim_stale_tasks(
+    async def claim_tasks_from_consumers(
         self,
         *,
+        consumer_names: list[str],
         min_idle_ms: int,
-        start_id: str,
         count: int,
-    ) -> ClaimedInvocationTasks:
+    ) -> list[InvocationTask]:
         self.claim_calls.append(
-            {"min_idle_ms": min_idle_ms, "start_id": start_id, "count": count}
+            {
+                "consumer_names": consumer_names,
+                "min_idle_ms": min_idle_ms,
+                "count": count,
+            }
         )
-        return ClaimedInvocationTasks(next_start_id="0-0", tasks=self.tasks)
+        return self.tasks
 
     async def read_new_tasks(self, count: int = 1, block_ms: int = 1000):
         self.read_new_calls += 1
@@ -57,23 +61,27 @@ class FakeRuntimeExecutor:
 
 
 class PaginatedClaimingConsumer:
-    def __init__(self, pages: dict[str, ClaimedInvocationTasks]) -> None:
+    def __init__(self, pages: list[list[InvocationTask]]) -> None:
         self.pages = pages
-        self.claim_calls: list[dict[str, int | str]] = []
+        self.claim_calls: list[dict[str, int | list[str]]] = []
         self.read_new_calls = 0
         self.acked_message_ids: list[str] = []
 
-    async def claim_stale_tasks(
+    async def claim_tasks_from_consumers(
         self,
         *,
+        consumer_names: list[str],
         min_idle_ms: int,
-        start_id: str,
         count: int,
-    ) -> ClaimedInvocationTasks:
+    ) -> list[InvocationTask]:
         self.claim_calls.append(
-            {"min_idle_ms": min_idle_ms, "start_id": start_id, "count": count}
+            {
+                "consumer_names": consumer_names,
+                "min_idle_ms": min_idle_ms,
+                "count": count,
+            }
         )
-        return self.pages[start_id]
+        return self.pages.pop(0)
 
     async def read_new_tasks(self, count: int = 1, block_ms: int = 1000):
         self.read_new_calls += 1
@@ -89,7 +97,10 @@ async def test_recovery_marks_stale_worker_offline_and_invocation_retrying(
     test_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     async with test_sessionmaker() as session:
-        worker = create_worker(last_heartbeat=current_time() - timedelta(seconds=60))
+        worker = create_worker(
+            last_heartbeat=current_time() - timedelta(seconds=60),
+            consumer_name="stale-consumer",
+        )
         session.add(worker)
         await session.flush()
         invocation = await create_running_invocation(session, worker=worker, attempt_count=1)
@@ -104,17 +115,31 @@ async def test_recovery_marks_stale_worker_offline_and_invocation_retrying(
         attempt = await get_only_attempt(session)
 
         assert summary.stale_worker_ids == [worker.id]
+        assert summary.stale_consumer_names == ["stale-consumer"]
         assert summary.retried_invocation_ids == [invocation.id]
         assert summary.failed_invocation_ids == []
         assert refreshed_worker is not None
-        assert refreshed_worker.status == WorkerStatus.OFFLINE
-        assert refreshed_worker.active_invocations == 0
+        assert refreshed_worker.status == WorkerStatus.RUNNING
         assert refreshed_invocation is not None
         assert refreshed_invocation.status == InvocationStatus.RETRYING
         assert refreshed_invocation.started_at is None
         assert refreshed_invocation.error_type == "WorkerLostError"
         assert attempt.status == InvocationAttemptStatus.FAILED
         assert attempt.error_type == "WorkerLostError"
+
+        repeated_summary = await StaleWorkerRecoveryService(session).recover_stale_workers(
+            stale_after_seconds=15,
+            max_attempts=3,
+        )
+        assert repeated_summary.stale_worker_ids == [worker.id]
+        assert repeated_summary.stale_consumer_names == ["stale-consumer"]
+        assert repeated_summary.recovered_invocation_count == 0
+
+        await StaleWorkerRecoveryService(session).mark_workers_offline([worker.id])
+        finalized_worker = await session.get(Worker, worker.id)
+        assert finalized_worker is not None
+        assert finalized_worker.status == WorkerStatus.OFFLINE
+        assert finalized_worker.active_invocations == 0
 
 
 @pytest.mark.asyncio
@@ -172,7 +197,10 @@ async def test_process_worker_once_recovers_and_processes_claimed_pending_task(
     test_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     async with test_sessionmaker() as session:
-        stale_worker = create_worker(last_heartbeat=current_time() - timedelta(seconds=60))
+        stale_worker = create_worker(
+            last_heartbeat=current_time() - timedelta(seconds=60),
+            consumer_name="stale-consumer",
+        )
         current_worker = create_worker(last_heartbeat=current_time())
         session.add_all([stale_worker, current_worker])
         await session.flush()
@@ -190,6 +218,7 @@ async def test_process_worker_once_recovers_and_processes_claimed_pending_task(
         attempt_number=1,
         queued_at=invocation.queued_at,
         deadline_at=invocation.deadline_at,
+        recovered=True,
     )
     consumer = ClaimingInvocationTaskConsumer([task])
     runtime = FakeRuntimeExecutor(RuntimeExecutionResult.succeeded({"recovered": True}))
@@ -210,7 +239,11 @@ async def test_process_worker_once_recovers_and_processes_claimed_pending_task(
 
     assert processed == 1
     assert consumer.claim_calls == [
-        {"min_idle_ms": 15_000, "start_id": "0-0", "count": 2}
+        {
+            "consumer_names": ["stale-consumer"],
+            "min_idle_ms": 0,
+            "count": 2,
+        }
     ]
     assert consumer.read_new_calls == 0
     assert consumer.acked_message_ids == [task.stream_message_id]
@@ -230,7 +263,10 @@ async def test_process_worker_once_drains_all_paginated_pending_tasks(
     test_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     async with test_sessionmaker() as session:
-        stale_worker = create_worker(last_heartbeat=current_time() - timedelta(seconds=60))
+        stale_worker = create_worker(
+            last_heartbeat=current_time() - timedelta(seconds=60),
+            consumer_name="stale-consumer",
+        )
         current_worker = create_worker(last_heartbeat=current_time())
         session.add_all([stale_worker, current_worker])
         await session.flush()
@@ -244,10 +280,7 @@ async def test_process_worker_once_drains_all_paginated_pending_tasks(
         for index, invocation in enumerate(invocations)
     ]
     consumer = PaginatedClaimingConsumer(
-        {
-            "0-0": ClaimedInvocationTasks(next_start_id="cursor-2", tasks=tasks[:2]),
-            "cursor-2": ClaimedInvocationTasks(next_start_id="0-0", tasks=tasks[2:]),
-        }
+        [tasks[:2], tasks[2:]]
     )
     runtime = FakeRuntimeExecutor(RuntimeExecutionResult.succeeded({"recovered": True}))
 
@@ -274,8 +307,16 @@ async def test_process_worker_once_drains_all_paginated_pending_tasks(
 
     assert processed == 3
     assert consumer.claim_calls == [
-        {"min_idle_ms": 15_000, "start_id": "0-0", "count": 2},
-        {"min_idle_ms": 15_000, "start_id": "cursor-2", "count": 2},
+        {
+            "consumer_names": ["stale-consumer"],
+            "min_idle_ms": 0,
+            "count": 2,
+        },
+        {
+            "consumer_names": ["stale-consumer"],
+            "min_idle_ms": 0,
+            "count": 2,
+        },
     ]
     assert consumer.read_new_calls == 0
     assert set(consumer.acked_message_ids) == {
@@ -288,9 +329,14 @@ async def test_process_worker_once_drains_all_paginated_pending_tasks(
     assert len(attempts) == 6
 
 
-def create_worker(*, last_heartbeat: datetime) -> Worker:
+def create_worker(
+    *,
+    last_heartbeat: datetime,
+    consumer_name: str | None = None,
+) -> Worker:
     return Worker(
         hostname=f"worker-{uuid4().hex}",
+        consumer_name=consumer_name,
         status=WorkerStatus.RUNNING,
         last_heartbeat=last_heartbeat,
         active_invocations=1,
@@ -331,8 +377,8 @@ async def create_running_invocation(
     session.add(version)
     await session.flush()
 
-    queued_at = datetime(2026, 7, 6, 9, 59, 30)
-    started_at = datetime(2026, 7, 6, 9, 59, 45)
+    queued_at = current_time() - timedelta(seconds=10)
+    started_at = current_time() - timedelta(seconds=5)
     invocation = Invocation(
         owner_id=OWNER_ID,
         function_version_id=version.id,
@@ -369,6 +415,7 @@ def make_recovery_task(invocation: Invocation, *, index: int) -> InvocationTask:
         attempt_number=1,
         queued_at=invocation.queued_at,
         deadline_at=invocation.deadline_at,
+        recovered=True,
     )
 
 

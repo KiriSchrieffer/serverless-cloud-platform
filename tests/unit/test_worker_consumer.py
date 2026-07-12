@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -57,6 +58,24 @@ class FakeRedisForClaim:
     async def xautoclaim(self, **kwargs):
         self.xautoclaim_kwargs = kwargs
         return self.response
+
+
+class FakeRedisForExactClaim:
+    def __init__(self, message_id: bytes, fields: dict[bytes, bytes]) -> None:
+        self.message_id = message_id
+        self.fields = fields
+        self.xpending_range_calls: list[dict] = []
+        self.xclaim_calls: list[dict] = []
+
+    async def xpending_range(self, **kwargs):
+        self.xpending_range_calls.append(kwargs)
+        if kwargs["consumername"] == "stale-consumer":
+            return [{"message_id": self.message_id}]
+        return []
+
+    async def xclaim(self, **kwargs):
+        self.xclaim_calls.append(kwargs)
+        return [(self.message_id, self.fields)]
 
 
 def test_parse_xreadgroup_response_decodes_invocation_task() -> None:
@@ -144,6 +163,55 @@ async def test_claim_stale_tasks_decodes_xautoclaim_response() -> None:
     assert claimed.tasks[0].invocation_id == invocation_id
     assert claimed.tasks[0].function_version_id == function_version_id
     assert claimed.tasks[0].owner_id == OWNER_ID
+    assert claimed.tasks[0].recovered is True
+
+
+@pytest.mark.asyncio
+async def test_claim_tasks_from_consumers_only_claims_named_stale_consumer() -> None:
+    invocation_id = uuid4()
+    function_version_id = uuid4()
+    queued_at = datetime(2026, 6, 20, 10, 0, 0)
+    deadline_at = datetime(2026, 6, 20, 10, 0, 30)
+    message_id = b"1710000000000-0"
+    fields = {
+        b"invocation_id": str(invocation_id).encode(),
+        b"function_version_id": str(function_version_id).encode(),
+        b"owner_id": str(OWNER_ID).encode(),
+        b"attempt_number": b"1",
+        b"queued_at": queued_at.isoformat().encode(),
+        b"deadline_at": deadline_at.isoformat().encode(),
+    }
+    redis = FakeRedisForExactClaim(message_id, fields)
+    consumer = RedisStreamConsumer(
+        redis=redis,
+        stream_name="invocations",
+        consumer_group="workers",
+        consumer_name="current-consumer",
+    )
+
+    tasks = await consumer.claim_tasks_from_consumers(
+        consumer_names=["stale-consumer", "fresh-consumer"],
+        min_idle_ms=15_000,
+        count=5,
+    )
+
+    assert [call["consumername"] for call in redis.xpending_range_calls] == [
+        "stale-consumer",
+        "fresh-consumer",
+    ]
+    assert redis.xclaim_calls == [
+        {
+            "name": "invocations",
+            "groupname": "workers",
+            "consumername": "current-consumer",
+            "min_idle_time": 15_000,
+            "message_ids": [message_id],
+        }
+    ]
+    assert len(tasks) == 1
+    assert tasks[0].invocation_id == invocation_id
+    assert tasks[0].recovered is True
+    assert tasks[0].recovered is True
 
 
 @pytest.mark.asyncio
@@ -174,7 +242,7 @@ async def test_mark_running_increments_attempt_number_for_retrying_invocation(
         invocation = await create_invocation(session, status=InvocationStatus.RETRYING)
         invocation.attempt_count = 1
         await session.commit()
-        task = make_task(invocation)
+        task = replace(make_task(invocation), attempt_number=2)
 
         attempt = await InvocationStateService(session).mark_running(task)
 
@@ -407,14 +475,14 @@ async def test_worker_task_processor_acks_retryable_failure_when_attempts_exhaus
         invocation = await create_invocation(session, status=InvocationStatus.QUEUED)
         invocation.attempt_count = 2
         await session.commit()
-        task = make_task(invocation)
+        task = replace(make_task(invocation), attempt_number=3)
         consumer = FakeInvocationTaskConsumer([task])
         runtime = FakeRuntimeExecutor(exception=RuntimeError("docker unavailable"))
         processor = WorkerTaskProcessor(
             consumer=consumer,
             invocation_state=InvocationStateService(session),
             runtime_executor=runtime,
-            retry_policy=RetryPolicy(max_attempts=1),
+            retry_policy=RetryPolicy(max_attempts=3),
         )
 
         processed = await processor.process_once()
@@ -451,6 +519,94 @@ async def test_worker_task_processor_acks_already_terminal_invocation_without_ex
         assert runtime.tasks == []
 
 
+@pytest.mark.asyncio
+async def test_worker_task_processor_acks_obsolete_recovered_attempt(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.RETRYING)
+        invocation.attempt_count = 1
+        session.add(
+            InvocationDispatch(
+                invocation_id=invocation.id,
+                attempt_number=2,
+                created_at=current_time(),
+                available_at=current_time() + timedelta(seconds=1),
+            )
+        )
+        await session.commit()
+        task = replace(make_task(invocation), recovered=True)
+        consumer = FakeInvocationTaskConsumer([task])
+        runtime = FakeRuntimeExecutor()
+        processor = WorkerTaskProcessor(
+            consumer=consumer,
+            invocation_state=InvocationStateService(session),
+            runtime_executor=runtime,
+        )
+
+        processed = await processor.process_once()
+
+        attempts = list(await session.scalars(select(InvocationAttempt)))
+        assert processed == 1
+        assert consumer.acked_message_ids == [task.stream_message_id]
+        assert runtime.tasks == []
+        assert attempts == []
+
+
+@pytest.mark.asyncio
+async def test_worker_task_processor_acks_duplicate_running_attempt(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.RUNNING)
+        invocation.attempt_count = 1
+        await session.commit()
+        task = make_task(invocation)
+        consumer = FakeInvocationTaskConsumer([task])
+        runtime = FakeRuntimeExecutor()
+        processor = WorkerTaskProcessor(
+            consumer=consumer,
+            invocation_state=InvocationStateService(session),
+            runtime_executor=runtime,
+        )
+
+        processed = await processor.process_once()
+
+        assert processed == 1
+        assert consumer.acked_message_ids == [task.stream_message_id]
+        assert runtime.tasks == []
+
+
+@pytest.mark.asyncio
+async def test_worker_task_processor_times_out_expired_task_without_execution(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, status=InvocationStatus.QUEUED)
+        invocation.deadline_at = current_time() - timedelta(seconds=1)
+        await session.commit()
+        task = make_task(invocation)
+        consumer = FakeInvocationTaskConsumer([task])
+        runtime = FakeRuntimeExecutor()
+        processor = WorkerTaskProcessor(
+            consumer=consumer,
+            invocation_state=InvocationStateService(session),
+            runtime_executor=runtime,
+        )
+
+        processed = await processor.process_once()
+
+        refreshed_invocation = await session.get(Invocation, invocation.id)
+        attempts = list(await session.scalars(select(InvocationAttempt)))
+        assert processed == 1
+        assert consumer.acked_message_ids == [task.stream_message_id]
+        assert runtime.tasks == []
+        assert refreshed_invocation is not None
+        assert refreshed_invocation.status == InvocationStatus.TIMEOUT
+        assert refreshed_invocation.error_type == "TimeoutError"
+        assert attempts == []
+
+
 async def create_invocation(session: AsyncSession, status: InvocationStatus) -> Invocation:
     user = User(
         id=OWNER_ID,
@@ -475,7 +631,7 @@ async def create_invocation(session: AsyncSession, status: InvocationStatus) -> 
     session.add(version)
     await session.flush()
 
-    queued_at = datetime(2026, 6, 20, 10, 0, 0)
+    queued_at = current_time()
     invocation = Invocation(
         owner_id=OWNER_ID,
         function_version_id=version.id,
@@ -517,3 +673,7 @@ def make_task(invocation: Invocation):
 async def get_only_attempt(session: AsyncSession) -> InvocationAttempt:
     result = await session.scalars(select(InvocationAttempt))
     return result.one()
+
+
+def current_time() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)

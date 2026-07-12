@@ -39,10 +39,12 @@ class WorkerHeartbeatService:
         *,
         hostname: str,
         max_concurrency: int,
+        consumer_name: str | None = None,
     ) -> Worker:
         now = self.utcnow()
         worker = Worker(
             hostname=hostname,
+            consumer_name=consumer_name,
             status=WorkerStatus.IDLE,
             last_heartbeat=now,
             active_invocations=0,

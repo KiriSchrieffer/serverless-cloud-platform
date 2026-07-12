@@ -51,6 +51,7 @@ async def test_workers_endpoint_returns_worker_health(
     assert response.status_code == 200
     workers = {worker["hostname"]: worker for worker in response.json()}
     assert workers["fresh-worker"]["status"] == "RUNNING"
+    assert workers["fresh-worker"]["consumer_name"] == "fresh-worker-consumer"
     assert workers["fresh-worker"]["active_invocations"] == 2
     assert workers["fresh-worker"]["stale"] is False
     assert workers["fresh-worker"]["heartbeat_age_seconds"] >= 0
@@ -251,6 +252,7 @@ def make_worker(
 ) -> Worker:
     return Worker(
         hostname=hostname,
+        consumer_name=f"{hostname}-consumer",
         status=status,
         last_heartbeat=last_heartbeat,
         active_invocations=active_invocations,

@@ -11,6 +11,7 @@ from backend.app.domain.enums import WorkerStatus
 class WorkerRead(BaseModel):
     id: UUID
     hostname: str
+    consumer_name: str | None = None
     status: WorkerStatus
     last_heartbeat: datetime
     heartbeat_age_seconds: int

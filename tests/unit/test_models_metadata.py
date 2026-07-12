@@ -15,6 +15,7 @@ def test_core_tables_are_registered() -> None:
         "invocation_dispatches",
         "workers",
     }
+    assert "consumer_name" in Base.metadata.tables["workers"].columns
 
 
 def test_registry_uniqueness_constraints_match_design() -> None:

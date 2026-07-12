@@ -30,10 +30,12 @@ class FakeContainer:
         self.stderr = stderr
         self.status_code = status_code
         self.timeout = timeout
+        self.wait_timeout = None
         self.killed = False
         self.removed = False
 
-    def wait(self, timeout: int):
+    def wait(self, timeout: float):
+        self.wait_timeout = timeout
         if self.timeout:
             raise TimeoutError("container deadline exceeded")
         return {"StatusCode": self.status_code}
@@ -97,6 +99,7 @@ async def test_docker_runtime_executor_runs_container_with_sandbox_options(
             runtime_image="runtime:test",
             workspace_root=tmp_path,
             storage_root=storage_root,
+            clock=lambda: invocation.queued_at,
         )
 
         result = await executor.execute(task)
@@ -159,6 +162,7 @@ async def test_docker_runtime_executor_maps_runtime_failure(
             docker_client=docker_client,
             workspace_root=tmp_path,
             storage_root=tmp_path / "storage",
+            clock=lambda: invocation.queued_at,
         ).execute(make_task(invocation))
 
     assert result.status == InvocationAttemptStatus.FAILED
@@ -184,6 +188,7 @@ async def test_docker_runtime_executor_rejects_invalid_stdout(
             docker_client=docker_client,
             workspace_root=tmp_path,
             storage_root=tmp_path / "storage",
+            clock=lambda: invocation.queued_at,
         ).execute(make_task(invocation))
 
     assert result.status == InvocationAttemptStatus.FAILED
@@ -208,6 +213,7 @@ async def test_docker_runtime_executor_returns_timeout_and_kills_container(
             docker_client=docker_client,
             workspace_root=tmp_path,
             storage_root=tmp_path / "storage",
+            clock=lambda: invocation.queued_at,
         ).execute(make_task(invocation))
 
     assert result.status == InvocationAttemptStatus.TIMEOUT
@@ -236,6 +242,7 @@ async def test_docker_runtime_executor_stores_large_results_by_reference(
             workspace_root=tmp_path,
             storage_root=storage_root,
             max_inline_result_bytes=8,
+            clock=lambda: invocation.queued_at,
         ).execute(make_task(invocation))
 
     assert result.status == InvocationAttemptStatus.SUCCEEDED
@@ -244,6 +251,57 @@ async def test_docker_runtime_executor_stores_large_results_by_reference(
     assert (storage_root / "results" / f"{invocation.id}.json").read_bytes() == (
         b'{"blob":"abcdef"}'
     )
+
+
+@pytest.mark.asyncio
+async def test_docker_runtime_executor_clips_timeout_to_remaining_deadline(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    package_path = tmp_path / "function.zip"
+    package_path.write_bytes(b"zip-content")
+    fake_container = FakeContainer()
+    docker_client = FakeDockerClient(fake_container)
+
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, package_path=package_path)
+        task = make_task(invocation)
+        result = await DockerRuntimeExecutor(
+            session,
+            docker_client=docker_client,
+            workspace_root=tmp_path,
+            storage_root=tmp_path / "storage",
+            clock=lambda: task.deadline_at - timedelta(seconds=2),
+        ).execute(task)
+
+    assert result.status == InvocationAttemptStatus.SUCCEEDED
+    assert fake_container.wait_timeout == 2.0
+    assert docker_client.containers.input_message["context"]["deadline_ms"] == 2_000
+
+
+@pytest.mark.asyncio
+async def test_docker_runtime_executor_skips_expired_deadline(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    package_path = tmp_path / "function.zip"
+    package_path.write_bytes(b"zip-content")
+    docker_client = FakeDockerClient(FakeContainer())
+
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, package_path=package_path)
+        task = make_task(invocation)
+        result = await DockerRuntimeExecutor(
+            session,
+            docker_client=docker_client,
+            workspace_root=tmp_path,
+            storage_root=tmp_path / "storage",
+            clock=lambda: task.deadline_at + timedelta(milliseconds=1),
+        ).execute(task)
+
+    assert result.status == InvocationAttemptStatus.TIMEOUT
+    assert result.duration_ms == 0
+    assert docker_client.containers.run_kwargs is None
 
 
 async def create_invocation(

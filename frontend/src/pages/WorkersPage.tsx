@@ -42,6 +42,7 @@ export function WorkersPage() {
           <thead>
             <tr>
               <th>Hostname</th>
+              <th>Consumer</th>
               <th>Status</th>
               <th>Heartbeat</th>
               <th>Active</th>
@@ -52,16 +53,17 @@ export function WorkersPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6}>Loading</td>
+                <td colSpan={7}>Loading</td>
               </tr>
             ) : workers.length === 0 ? (
               <tr>
-                <td colSpan={6}>No workers</td>
+                <td colSpan={7}>No workers</td>
               </tr>
             ) : (
               workers.map((worker) => (
                 <tr key={worker.id}>
                   <td className="strong">{worker.hostname}</td>
+                  <td className="mono truncate">{worker.consumer_name ?? "-"}</td>
                   <td>
                     <span
                       className={`badge ${

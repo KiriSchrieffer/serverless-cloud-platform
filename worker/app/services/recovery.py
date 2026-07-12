@@ -15,6 +15,7 @@ from backend.app.models.worker import Worker
 @dataclass(frozen=True)
 class RecoverySummary:
     stale_worker_ids: list[UUID]
+    stale_consumer_names: list[str]
     retried_invocation_ids: list[UUID]
     failed_invocation_ids: list[UUID]
 
@@ -37,16 +38,18 @@ class StaleWorkerRecoveryService:
         cutoff = now - timedelta(seconds=stale_after_seconds)
         stale_workers = await self.find_stale_workers(cutoff)
         stale_worker_ids = [worker.id for worker in stale_workers]
+        stale_consumer_names = [
+            worker.consumer_name
+            for worker in stale_workers
+            if worker.consumer_name is not None
+        ]
         if not stale_worker_ids:
             return RecoverySummary(
                 stale_worker_ids=[],
+                stale_consumer_names=[],
                 retried_invocation_ids=[],
                 failed_invocation_ids=[],
             )
-
-        for worker in stale_workers:
-            worker.status = WorkerStatus.OFFLINE
-            worker.active_invocations = 0
 
         retried_invocation_ids: list[UUID] = []
         failed_invocation_ids: list[UUID] = []
@@ -80,9 +83,23 @@ class StaleWorkerRecoveryService:
         await self.session.commit()
         return RecoverySummary(
             stale_worker_ids=stale_worker_ids,
+            stale_consumer_names=stale_consumer_names,
             retried_invocation_ids=retried_invocation_ids,
             failed_invocation_ids=failed_invocation_ids,
         )
+
+    async def mark_workers_offline(self, worker_ids: list[UUID]) -> None:
+        if not worker_ids:
+            return
+        workers = await self.session.scalars(
+            select(Worker)
+            .where(Worker.id.in_(worker_ids))
+            .with_for_update()
+        )
+        for worker in workers:
+            worker.status = WorkerStatus.OFFLINE
+            worker.active_invocations = 0
+        await self.session.commit()
 
     async def find_stale_workers(self, cutoff: datetime) -> list[Worker]:
         result = await self.session.scalars(
@@ -92,6 +109,7 @@ class StaleWorkerRecoveryService:
                 Worker.status != WorkerStatus.OFFLINE,
             )
             .order_by(Worker.last_heartbeat)
+            .with_for_update(skip_locked=True)
         )
         return list(result)
 

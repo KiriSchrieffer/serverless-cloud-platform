@@ -11,7 +11,7 @@ from backend.app.models.invocation import Invocation, InvocationAttempt
 from backend.app.models.user import User
 from backend.app.models.worker import Worker
 from worker.app.main import process_worker_once
-from worker.app.queue.consumer import ClaimedInvocationTasks, InvocationTask
+from worker.app.queue.consumer import InvocationTask
 from worker.app.runtime.docker_executor import RuntimeExecutionResult
 
 OWNER_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -24,17 +24,21 @@ class PendingOnlyConsumer:
         self.read_new_calls = 0
         self.acked_message_ids: list[str] = []
 
-    async def claim_stale_tasks(
+    async def claim_tasks_from_consumers(
         self,
         *,
+        consumer_names: list[str],
         min_idle_ms: int,
-        start_id: str,
         count: int,
-    ) -> ClaimedInvocationTasks:
+    ) -> list[InvocationTask]:
         self.claim_calls.append(
-            {"min_idle_ms": min_idle_ms, "start_id": start_id, "count": count}
+            {
+                "consumer_names": consumer_names,
+                "min_idle_ms": min_idle_ms,
+                "count": count,
+            }
         )
-        return ClaimedInvocationTasks(next_start_id="0-0", tasks=[self.task])
+        return [self.task]
 
     async def read_new_tasks(self, count: int = 1, block_ms: int = 1000) -> list[InvocationTask]:
         self.read_new_calls += 1
@@ -62,6 +66,7 @@ async def test_pending_invocation_is_reclaimed_after_worker_crash(
         crashed_worker = make_worker(
             hostname="crashed-worker",
             last_heartbeat=current_time() - timedelta(seconds=60),
+            consumer_name="crashed-consumer",
         )
         current_worker = make_worker(hostname="current-worker", last_heartbeat=current_time())
         session.add_all([crashed_worker, current_worker])
@@ -80,6 +85,7 @@ async def test_pending_invocation_is_reclaimed_after_worker_crash(
         attempt_number=1,
         queued_at=invocation.queued_at,
         deadline_at=invocation.deadline_at,
+        recovered=True,
     )
     consumer = PendingOnlyConsumer(task)
     runtime = SuccessfulRuntime()
@@ -107,7 +113,11 @@ async def test_pending_invocation_is_reclaimed_after_worker_crash(
 
     assert processed == 1
     assert consumer.claim_calls == [
-        {"min_idle_ms": 15_000, "start_id": "0-0", "count": 2}
+        {
+            "consumer_names": ["crashed-consumer"],
+            "min_idle_ms": 0,
+            "count": 2,
+        }
     ]
     assert consumer.read_new_calls == 0
     assert consumer.acked_message_ids == [task.stream_message_id]
@@ -124,9 +134,15 @@ async def test_pending_invocation_is_reclaimed_after_worker_crash(
     assert attempts[1].worker_id == current_worker.id
 
 
-def make_worker(*, hostname: str, last_heartbeat: datetime) -> Worker:
+def make_worker(
+    *,
+    hostname: str,
+    last_heartbeat: datetime,
+    consumer_name: str | None = None,
+) -> Worker:
     return Worker(
         hostname=f"{hostname}-{uuid4().hex}",
+        consumer_name=consumer_name,
         status=WorkerStatus.RUNNING,
         last_heartbeat=last_heartbeat,
         active_invocations=1,
@@ -164,8 +180,8 @@ async def create_running_invocation(
     session.add(version)
     await session.flush()
 
-    queued_at = datetime(2026, 7, 6, 9, 59, 30)
-    started_at = datetime(2026, 7, 6, 9, 59, 45)
+    queued_at = current_time() - timedelta(seconds=10)
+    started_at = current_time() - timedelta(seconds=5)
     invocation = Invocation(
         owner_id=OWNER_ID,
         function_version_id=version.id,

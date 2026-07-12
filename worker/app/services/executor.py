@@ -6,7 +6,12 @@ from uuid import UUID
 
 from worker.app.queue.consumer import InvocationTask
 from worker.app.runtime.docker_executor import RuntimeExecutionResult
-from worker.app.services.invocation_state import InvocationCannotStartError, InvocationStateService
+from worker.app.services.invocation_state import (
+    InvocationCannotStartError,
+    InvocationDeadlineExceededError,
+    InvocationObsoleteTaskError,
+    InvocationStateService,
+)
 from worker.app.services.retry import RetryPolicy
 
 TaskLifecycleHook = Callable[[InvocationTask], Awaitable[None]]
@@ -53,6 +58,10 @@ class WorkerTaskProcessor:
         for task in tasks:
             try:
                 attempt = await self.invocation_state.mark_running(task, worker_id=self.worker_id)
+            except (InvocationDeadlineExceededError, InvocationObsoleteTaskError):
+                await self.consumer.acknowledge(task)
+                processed += 1
+                continue
             except InvocationCannotStartError as exc:
                 if self.invocation_state.is_terminal_status(exc.status):
                     await self.consumer.acknowledge(task)

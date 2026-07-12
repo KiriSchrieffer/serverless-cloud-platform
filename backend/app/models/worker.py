@@ -16,6 +16,7 @@ class Worker(TimestampMixin, Base):
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
+    consumer_name: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     status: Mapped[WorkerStatus] = mapped_column(
         Enum(WorkerStatus, name="worker_status"),
         index=True,

@@ -17,6 +17,7 @@ class InvocationTask:
     attempt_number: int
     queued_at: datetime
     deadline_at: datetime
+    recovered: bool = False
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,8 @@ def normalize_stream_fields(fields: dict[bytes | str, bytes | str | int]) -> dic
 def parse_invocation_task(
     message_id: bytes | str,
     fields: dict[bytes | str, bytes | str | int],
+    *,
+    recovered: bool = False,
 ) -> InvocationTask:
     normalized = normalize_stream_fields(fields)
     return InvocationTask(
@@ -48,6 +51,7 @@ def parse_invocation_task(
         attempt_number=int(normalized["attempt_number"]),
         queued_at=datetime.fromisoformat(normalized["queued_at"]),
         deadline_at=datetime.fromisoformat(normalized["deadline_at"]),
+        recovered=recovered,
     )
 
 
@@ -114,6 +118,55 @@ class RedisStreamConsumer:
         )
         return parse_xautoclaim_response(response)
 
+    async def claim_tasks_from_consumers(
+        self,
+        *,
+        consumer_names: list[str],
+        min_idle_ms: int,
+        count: int,
+    ) -> list[InvocationTask]:
+        tasks: list[InvocationTask] = []
+        for stale_consumer_name in consumer_names:
+            remaining = count - len(tasks)
+            if remaining <= 0:
+                break
+            pending = await self.redis.xpending_range(
+                name=self.stream_name,
+                groupname=self.consumer_group,
+                min="-",
+                max="+",
+                count=remaining,
+                consumername=stale_consumer_name,
+                idle=min_idle_ms,
+            )
+            message_ids = [pending_message_id(item) for item in pending]
+            if not message_ids:
+                continue
+            claimed = await self.redis.xclaim(
+                name=self.stream_name,
+                groupname=self.consumer_group,
+                consumername=self.consumer_name,
+                min_idle_time=min_idle_ms,
+                message_ids=message_ids,
+            )
+            tasks.extend(
+                parse_invocation_task(message_id, fields, recovered=True)
+                for message_id, fields in claimed
+            )
+        return tasks
+
+
+def pending_message_id(item: object) -> bytes | str:
+    if isinstance(item, dict):
+        message_id = item.get("message_id") or item.get(b"message_id")
+        if isinstance(message_id, (bytes, str)):
+            return message_id
+    if isinstance(item, (list, tuple)) and item:
+        message_id = item[0]
+        if isinstance(message_id, (bytes, str)):
+            return message_id
+    raise ValueError("Redis XPENDING response is missing message_id")
+
 
 def parse_xreadgroup_response(response: object) -> list[InvocationTask]:
     tasks: list[InvocationTask] = []
@@ -130,5 +183,8 @@ def parse_xautoclaim_response(response: object) -> ClaimedInvocationTasks:
     next_start_id, messages, *_ = response
     return ClaimedInvocationTasks(
         next_start_id=decode_redis_value(next_start_id),
-        tasks=[parse_invocation_task(message_id, fields) for message_id, fields in messages],
+        tasks=[
+            parse_invocation_task(message_id, fields, recovered=True)
+            for message_id, fields in messages
+        ],
     )

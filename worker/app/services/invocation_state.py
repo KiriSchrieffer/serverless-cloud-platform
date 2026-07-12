@@ -34,6 +34,21 @@ class InvocationCannotStartError(Exception):
         self.status = status
 
 
+class InvocationObsoleteTaskError(Exception):
+    def __init__(self, invocation_id: UUID, attempt_number: int) -> None:
+        super().__init__(
+            f"Invocation {invocation_id} task attempt {attempt_number} is obsolete"
+        )
+        self.invocation_id = invocation_id
+        self.attempt_number = attempt_number
+
+
+class InvocationDeadlineExceededError(Exception):
+    def __init__(self, invocation_id: UUID) -> None:
+        super().__init__(f"Invocation {invocation_id} deadline was exceeded before execution")
+        self.invocation_id = invocation_id
+
+
 class InvocationCannotCompleteError(Exception):
     def __init__(
         self,
@@ -67,7 +82,29 @@ class InvocationStateService:
             .where(Invocation.id == task.invocation_id)
             .with_for_update()
         )
-        if invocation is None or invocation.status not in {
+        if invocation is None:
+            raise InvocationCannotStartError(task.invocation_id, None)
+
+        if invocation.status in TERMINAL_INVOCATION_STATUSES:
+            raise InvocationCannotStartError(task.invocation_id, invocation.status)
+
+        if (
+            invocation.status == InvocationStatus.RUNNING
+            and task.attempt_number <= invocation.attempt_count
+        ):
+            raise InvocationObsoleteTaskError(task.invocation_id, task.attempt_number)
+
+        now = self.utcnow()
+        if invocation.deadline_at <= now:
+            invocation.status = InvocationStatus.TIMEOUT
+            invocation.completed_at = now
+            invocation.started_at = None
+            invocation.error_type = "TimeoutError"
+            invocation.error_message = "Invocation deadline exceeded before execution"
+            await self.session.commit()
+            raise InvocationDeadlineExceededError(task.invocation_id)
+
+        if invocation.status not in {
             InvocationStatus.QUEUED,
             InvocationStatus.RETRYING,
         }:
@@ -76,11 +113,22 @@ class InvocationStateService:
                 invocation.status if invocation is not None else None,
             )
 
+        expected_attempt_number = invocation.attempt_count + 1
         attempt_number = task.attempt_number
-        if invocation.status == InvocationStatus.RETRYING:
-            attempt_number = invocation.attempt_count + 1
+        if task.attempt_number < expected_attempt_number:
+            scheduled_retry = await self.session.scalar(
+                select(InvocationDispatch.id).where(
+                    InvocationDispatch.invocation_id == invocation.id,
+                    InvocationDispatch.attempt_number == expected_attempt_number,
+                )
+            )
+            if not task.recovered or scheduled_retry is not None:
+                raise InvocationObsoleteTaskError(task.invocation_id, task.attempt_number)
+            attempt_number = expected_attempt_number
+        elif task.attempt_number > expected_attempt_number:
+            raise InvocationCannotStartError(task.invocation_id, invocation.status)
 
-        started_at = self.utcnow()
+        started_at = now
         attempt = InvocationAttempt(
             invocation_id=task.invocation_id,
             worker_id=worker_id,
