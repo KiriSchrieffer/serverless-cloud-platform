@@ -37,7 +37,8 @@ async def create_function(
     registry: Annotated[FunctionRegistryService, Depends(get_function_registry_service)],
 ) -> FunctionRead:
     try:
-        return await registry.create_function(owner_id=owner_id, name=payload.name)
+        function = await registry.create_function(owner_id=owner_id, name=payload.name)
+        return FunctionRead.model_validate(function)
     except FunctionNameAlreadyExistsError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -50,7 +51,8 @@ async def list_functions(
     owner_id: Annotated[UUID, Depends(get_current_user_id)],
     registry: Annotated[FunctionRegistryService, Depends(get_function_registry_service)],
 ) -> list[FunctionRead]:
-    return await registry.list_functions(owner_id=owner_id)
+    functions = await registry.list_functions(owner_id=owner_id)
+    return [FunctionRead.model_validate(function) for function in functions]
 
 
 @router.post(
@@ -65,7 +67,7 @@ async def create_function_version(
     registry: Annotated[FunctionRegistryService, Depends(get_function_registry_service)],
 ) -> FunctionVersionRead:
     try:
-        return await registry.create_function_version(
+        version = await registry.create_function_version(
             owner_id=owner_id,
             function_name=function_name,
             runtime=payload.runtime,
@@ -76,6 +78,7 @@ async def create_function_version(
             cpu_limit=payload.cpu_limit,
             timeout_seconds=payload.timeout_seconds,
         )
+        return FunctionVersionRead.model_validate(version)
     except FunctionNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -123,7 +126,7 @@ async def upload_function_version(
             handler=handler,
             contents=await package.read(),
         )
-        return await registry.create_function_version(
+        version = await registry.create_function_version(
             owner_id=owner_id,
             function_name=function_name,
             runtime=runtime,
@@ -135,6 +138,7 @@ async def upload_function_version(
             timeout_seconds=timeout_seconds,
             version_number=next_version_number,
         )
+        return FunctionVersionRead.model_validate(version)
     except FunctionNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -156,7 +160,11 @@ async def list_function_versions(
     registry: Annotated[FunctionRegistryService, Depends(get_function_registry_service)],
 ) -> list[FunctionVersionRead]:
     try:
-        return await registry.list_function_versions(owner_id=owner_id, function_name=function_name)
+        versions = await registry.list_function_versions(
+            owner_id=owner_id,
+            function_name=function_name,
+        )
+        return [FunctionVersionRead.model_validate(version) for version in versions]
     except FunctionNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -1,11 +1,13 @@
 """Redis Streams producer for accepted invocations."""
 
-from typing import Protocol
+from typing import Protocol, cast
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from backend.app.models.invocation import Invocation
+
+RedisField = bytes | bytearray | memoryview | str | int | float
 
 
 class InvocationQueuePublishError(Exception):
@@ -56,7 +58,11 @@ class RedisInvocationQueuePublisher:
         )
 
         try:
-            message_id = await self.redis.xadd(self.stream_name, fields)
+            redis_fields = cast(
+                dict[RedisField, RedisField],
+                fields,
+            )
+            message_id = await self.redis.xadd(self.stream_name, redis_fields)
         except RedisError as exc:
             raise InvocationQueuePublishError(str(invocation.id)) from exc
 

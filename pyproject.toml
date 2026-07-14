@@ -24,7 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 worker = ["docker"]
 test = ["aiosqlite", "httpx", "pytest", "pytest-asyncio"]
-dev = ["ruff", "mypy"]
+dev = ["ruff", "mypy", "types-docker", "types-python-jose"]
 
 [tool.setuptools.packages.find]
 include = ["backend*", "worker*", "benchmarks*"]
@@ -32,6 +32,18 @@ include = ["backend*", "worker*", "benchmarks*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+  "integration: requires real PostgreSQL and Redis services",
+  "docker: requires a Docker daemon and the runtime image",
+]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+exclude = ["backend/migrations/"]
 
 [tool.ruff]
 line-length = 100

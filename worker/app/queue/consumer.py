@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, cast
 from uuid import UUID
 
 from redis.asyncio import Redis
@@ -142,16 +143,24 @@ class RedisStreamConsumer:
             message_ids = [pending_message_id(item) for item in pending]
             if not message_ids:
                 continue
+            claim_message_ids = cast(
+                list[int | bytes | str | memoryview],
+                message_ids,
+            )
             claimed = await self.redis.xclaim(
                 name=self.stream_name,
                 groupname=self.consumer_group,
                 consumername=self.consumer_name,
                 min_idle_time=min_idle_ms,
-                message_ids=message_ids,
+                message_ids=claim_message_ids,
+            )
+            claimed_messages = cast(
+                list[tuple[bytes | str, dict[bytes | str, bytes | str | int]]],
+                claimed,
             )
             tasks.extend(
                 parse_invocation_task(message_id, fields, recovered=True)
-                for message_id, fields in claimed
+                for message_id, fields in claimed_messages
             )
         return tasks
 
@@ -170,7 +179,16 @@ def pending_message_id(item: object) -> bytes | str:
 
 def parse_xreadgroup_response(response: object) -> list[InvocationTask]:
     tasks: list[InvocationTask] = []
-    for _stream_name, messages in response or []:
+    streams = cast(
+        list[
+            tuple[
+                bytes | str,
+                list[tuple[bytes | str, dict[bytes | str, bytes | str | int]]],
+            ]
+        ],
+        response or [],
+    )
+    for _stream_name, messages in streams:
         for message_id, fields in messages:
             tasks.append(parse_invocation_task(message_id, fields))
     return tasks
@@ -180,7 +198,12 @@ def parse_xautoclaim_response(response: object) -> ClaimedInvocationTasks:
     if not response:
         return ClaimedInvocationTasks(next_start_id="0-0", tasks=[])
 
-    next_start_id, messages, *_ = response
+    parts = cast(list[Any] | tuple[Any, ...], response)
+    next_start_id = cast(bytes | str | int, parts[0])
+    messages = cast(
+        list[tuple[bytes | str, dict[bytes | str, bytes | str | int]]],
+        parts[1],
+    )
     return ClaimedInvocationTasks(
         next_start_id=decode_redis_value(next_start_id),
         tasks=[

@@ -4,12 +4,33 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   DATABASE_URL: postgresql+asyncpg://serverless:serverless@localhost:5432/serverless
   REDIS_URL: redis://localhost:6379/0
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install -e ".[test,worker,dev]"
+      - run: ruff check backend worker benchmarks tests
+      - run: mypy backend/app worker/app benchmarks
+      - run: python -m compileall -q backend worker runtime benchmarks tests
+      - run: docker compose config --quiet
+
   test:
     runs-on: ubuntu-latest
     services:
@@ -30,15 +51,24 @@ jobs:
         image: redis:7
         ports:
           - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
       - run: python -m pip install -e ".[test]"
       - run: alembic upgrade head
       - run: alembic check
-      - run: pytest
+      - run: pytest -m "not integration and not docker"
+      - run: pytest tests/integration/test_postgres_redis.py -m integration
+        env:
+          RUN_INTEGRATION_TESTS: "1"
 
   frontend:
     runs-on: ubuntu-latest
@@ -53,3 +83,17 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install -e ".[test]"
+      - run: docker compose build runtime-image api worker frontend
+      - run: pytest tests/integration/test_runtime_container.py -m docker
+        env:
+          RUN_DOCKER_TESTS: "1"

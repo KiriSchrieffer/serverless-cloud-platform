@@ -450,8 +450,12 @@ class DockerRuntimeExecutor:
     @staticmethod
     def extract_exit_code(wait_result: object) -> int:
         if isinstance(wait_result, dict):
-            return int(wait_result.get("StatusCode", 1))
-        return int(wait_result)
+            value = wait_result.get("StatusCode", 1)
+        else:
+            value = wait_result
+        if isinstance(value, (bytes, str, int, float)):
+            return int(value)
+        return 1
 
     @staticmethod
     def elapsed_ms(started: float) -> int:

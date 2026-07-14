@@ -23,7 +23,8 @@ async def register(
     auth: Annotated[AuthService, Depends(get_auth_service)],
 ) -> UserRead:
     try:
-        return await auth.register(email=payload.email, password=payload.password)
+        user = await auth.register(email=payload.email, password=payload.password)
+        return UserRead.model_validate(user)
     except EmailAlreadyRegisteredError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

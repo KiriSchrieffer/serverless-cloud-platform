@@ -24,7 +24,11 @@ async def get_invocation(
     invocations: Annotated[InvocationService, Depends(get_invocation_service)],
 ) -> InvocationRead:
     try:
-        return await invocations.get_invocation(owner_id=owner_id, invocation_id=invocation_id)
+        invocation = await invocations.get_invocation(
+            owner_id=owner_id,
+            invocation_id=invocation_id,
+        )
+        return InvocationRead.model_validate(invocation)
     except InvocationNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
