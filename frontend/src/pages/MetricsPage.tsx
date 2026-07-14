@@ -42,6 +42,44 @@ export function MetricsPage() {
           label="Success rate"
           value={summary ? formatPercent(summary.invocations.success_rate) : "-"}
         />
+        <MetricTile
+          label="Error rate"
+          value={summary ? formatPercent(summary.invocations.error_rate) : "-"}
+        />
+        <MetricTile
+          label="Throughput / min"
+          value={summary?.invocations.throughput_per_minute ?? "-"}
+        />
+        <MetricTile label="Retries" value={summary?.invocations.retry_count ?? "-"} />
+        <MetricTile label="Queue depth" value={summary?.queue.depth ?? "-"} />
+        <MetricTile
+          label="Oldest queued"
+          value={formatSeconds(summary?.queue.oldest_age_seconds)}
+        />
+        <MetricTile
+          label="Pending dispatch"
+          value={summary?.queue.pending_dispatches ?? "-"}
+        />
+        <MetricTile
+          label="Oldest dispatch"
+          value={formatSeconds(summary?.queue.oldest_dispatch_age_seconds)}
+        />
+        <MetricTile
+          label="Avg latency"
+          value={formatMilliseconds(summary?.invocations.average_latency_ms)}
+        />
+        <MetricTile
+          label="p50 latency"
+          value={formatMilliseconds(summary?.invocations.p50_latency_ms)}
+        />
+        <MetricTile
+          label="p95 latency"
+          value={formatMilliseconds(summary?.invocations.p95_latency_ms)}
+        />
+        <MetricTile
+          label="p99 latency"
+          value={formatMilliseconds(summary?.invocations.p99_latency_ms)}
+        />
         <MetricTile label="Succeeded" value={summary?.invocations.succeeded ?? "-"} />
         <MetricTile label="Failed" value={summary?.invocations.failed ?? "-"} />
         <MetricTile label="Timeout" value={summary?.invocations.timeout ?? "-"} />
@@ -87,4 +125,11 @@ function formatMilliseconds(value: number | null | undefined): string {
     return "-";
   }
   return `${value} ms`;
+}
+
+function formatSeconds(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return `${value} s`;
 }

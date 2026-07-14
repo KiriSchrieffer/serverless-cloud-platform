@@ -10,7 +10,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -33,11 +35,19 @@ button:disabled {
   cursor: not-allowed;
 }
 
-input {
+input,
+select,
+textarea {
   border: 1px solid #b8c2cc;
   border-radius: 6px;
-  min-height: 36px;
-  padding: 0 10px;
+  box-sizing: border-box;
+  min-height: 38px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+textarea {
+  resize: vertical;
 }
 
 a {
@@ -226,6 +236,12 @@ tr:last-child td {
   color: #8f1d18;
 }
 
+.notice.success {
+  background: #e8f7ee;
+  border-color: #a8d9ba;
+  color: #176b3a;
+}
+
 .notice.compact {
   margin-bottom: 10px;
   padding: 8px 10px;
@@ -276,6 +292,52 @@ tr:last-child td {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.action-grid {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.action-card {
+  background: #ffffff;
+  border: 1px solid #dce1e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 13px;
+  padding: 16px;
+}
+
+.action-card h3 {
+  margin: 4px 0 0;
+}
+
+.action-card label {
+  color: #52606d;
+  display: grid;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.step-label {
+  color: #61758a;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.compact-fields {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.compact-fields.two-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .metric-tile {
@@ -391,6 +453,9 @@ tr:last-child td {
   }
 
   .metric-grid,
+  .action-grid,
+  .compact-fields,
+  .compact-fields.two-columns,
   .detail-grid,
   .lookup-form {
     grid-template-columns: 1fr;

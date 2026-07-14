@@ -10,6 +10,7 @@ import { WorkersPage } from "./pages/WorkersPage";
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(() => getAccessToken() !== null);
+  const [selectedInvocationId, setSelectedInvocationId] = useState<string | null>(null);
 
   useEffect(() => {
     const requireAuthentication = () => setAuthenticated(false);
@@ -28,8 +29,8 @@ export default function App() {
 
   return (
     <Layout onLogout={logout}>
-      <FunctionsPage />
-      <InvocationDetailPage />
+      <FunctionsPage onInvocationAccepted={setSelectedInvocationId} />
+      <InvocationDetailPage requestedInvocationId={selectedInvocationId} />
       <WorkersPage />
       <MetricsPage />
     </Layout>

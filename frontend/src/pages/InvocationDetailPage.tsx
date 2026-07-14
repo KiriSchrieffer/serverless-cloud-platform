@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import {
   type InvocationRead,
@@ -6,13 +6,24 @@ import {
   getInvocationLogs,
 } from "../api/client";
 
-export function InvocationDetailPage() {
+type InvocationDetailPageProps = {
+  requestedInvocationId?: string | null;
+};
+
+export function InvocationDetailPage({ requestedInvocationId }: InvocationDetailPageProps) {
   const [invocationId, setInvocationId] = useState("");
   const [invocation, setInvocation] = useState<InvocationRead | null>(null);
   const [logs, setLogs] = useState("");
   const [logsError, setLogsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (requestedInvocationId) {
+      setInvocationId(requestedInvocationId);
+      void loadInvocation(requestedInvocationId);
+    }
+  }, [requestedInvocationId]);
 
   async function loadInvocation(id: string) {
     setLoading(true);
@@ -54,6 +65,15 @@ export function InvocationDetailPage() {
           <h2>Invocation Detail</h2>
           <p>{invocation ? invocation.status : "Lookup"}</p>
         </div>
+        {invocation ? (
+          <button
+            type="button"
+            onClick={() => void loadInvocation(invocation.id)}
+            disabled={loading}
+          >
+            Refresh
+          </button>
+        ) : null}
       </div>
 
       <form className="lookup-form" onSubmit={handleSubmit}>

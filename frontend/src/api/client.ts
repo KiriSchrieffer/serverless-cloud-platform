@@ -54,6 +54,12 @@ export type InvocationRead = {
   updated_at: string;
 };
 
+export type InvocationAccepted = {
+  invocation_id: string;
+  status: InvocationStatus;
+  status_url: string;
+};
+
 export type InvocationStatus =
   | "QUEUED"
   | "RUNNING"
@@ -83,6 +89,7 @@ export type WorkerStatus = "IDLE" | "RUNNING" | "DRAINING" | "OFFLINE";
 export type MetricsSummary = {
   invocations: {
     total: number;
+    terminal: number;
     queued: number;
     running: number;
     retrying: number;
@@ -91,8 +98,21 @@ export type MetricsSummary = {
     timeout: number;
     canceled: number;
     success_rate: number;
+    error_rate: number;
+    retry_count: number;
+    throughput_per_minute: number;
+    average_latency_ms: number | null;
+    p50_latency_ms: number | null;
+    p95_latency_ms: number | null;
+    p99_latency_ms: number | null;
     average_execution_ms: number | null;
     p95_execution_ms: number | null;
+  };
+  queue: {
+    depth: number;
+    oldest_age_seconds: number | null;
+    pending_dispatches: number;
+    oldest_dispatch_age_seconds: number | null;
   };
   workers: {
     total: number;
@@ -159,10 +179,14 @@ export async function fetchText(path: string): Promise<string> {
 }
 
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = requestHeaders("application/json");
+  if (init.body instanceof FormData) {
+    delete headers["Content-Type"];
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
-      ...requestHeaders("application/json"),
+      ...headers,
       ...init.headers,
     },
   });
@@ -195,6 +219,54 @@ function handleUnauthorized(response: Response): void {
 
 export function listFunctions(): Promise<FunctionRead[]> {
   return fetchJson<FunctionRead[]>("/functions");
+}
+
+export function createFunction(name: string): Promise<FunctionRead> {
+  return requestJson<FunctionRead>("/functions", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function uploadFunctionVersion(
+  functionName: string,
+  packageFile: File,
+  options: {
+    handler: string;
+    memoryLimitMb: number;
+    cpuLimit: number;
+    timeoutSeconds: number;
+  },
+): Promise<FunctionVersionRead> {
+  const form = new FormData();
+  form.set("package", packageFile);
+  form.set("runtime", "python3.11");
+  form.set("handler", options.handler);
+  form.set("memory_limit_mb", String(options.memoryLimitMb));
+  form.set("cpu_limit", String(options.cpuLimit));
+  form.set("timeout_seconds", String(options.timeoutSeconds));
+  return requestJson<FunctionVersionRead>(
+    `/functions/${encodeURIComponent(functionName)}/versions/upload`,
+    { method: "POST", body: form },
+  );
+}
+
+export function invokeFunction(
+  functionName: string,
+  payload: JsonValue,
+  options: { versionNumber?: number; idempotencyKey?: string } = {},
+): Promise<InvocationAccepted> {
+  return requestJson<InvocationAccepted>(
+    `/functions/${encodeURIComponent(functionName)}/invoke`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        payload,
+        version_number: options.versionNumber,
+        idempotency_key: options.idempotencyKey,
+      }),
+    },
+  );
 }
 
 export function listFunctionVersions(functionName: string): Promise<FunctionVersionRead[]> {

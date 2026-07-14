@@ -11,6 +11,7 @@ export function Layout({ children, onLogout }: LayoutProps) {
       <aside className="sidebar">
         <h1>Serverless</h1>
         <nav>
+          <a href="#workflow">Deploy &amp; Invoke</a>
           <a href="#functions">Functions</a>
           <a href="#invocation">Invocation</a>
           <a href="#workers">Workers</a>
