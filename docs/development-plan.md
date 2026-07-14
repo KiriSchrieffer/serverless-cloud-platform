@@ -22,6 +22,10 @@ documented verification evidence are all present.
   tests, and CI gates for lint, typing, migrations, integration, frontend, and
   Docker runtime smoke. GitHub CI execution and final Docker-enabled validation
   remain pending.
+- Milestone 2 now has executable real PostgreSQL/Redis tests plus black-box
+  Compose workflows for success, handler failure, timeout, invalid runtime
+  output, log retrieval, metrics, and recovery after a real worker process is
+  killed. Docker-enabled CI is the remaining validation gate.
 
 ## Delivery Principles
 

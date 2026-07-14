@@ -129,6 +129,10 @@ async def test_docker_runtime_executor_runs_container_with_sandbox_options(
     assert run_kwargs["security_opt"] == ["no-new-privileges"]
     assert run_kwargs["pids_limit"] == 64
     assert run_kwargs["tmpfs"] == {"/tmp": "rw,noexec,nosuid,size=64m"}
+    assert run_kwargs["labels"] == {
+        "serverless.platform.runtime": "true",
+        "serverless.platform.invocation-id": str(invocation.id),
+    }
     assert docker_client.containers.input_message == {
         "event": {"name": "Ada"},
         "context": {

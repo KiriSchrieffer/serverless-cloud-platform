@@ -272,12 +272,20 @@ With Docker running and the runtime image built:
 make docker-smoke
 ```
 
+With the complete Compose stack running:
+
+```bash
+make e2e
+```
+
 Current test coverage includes:
 
 - API health and function registry behavior
 - registration, password hashing, JWT validation, user isolation, and rate limits
 - real PostgreSQL concurrent idempotency and Redis atomic token-bucket checks
 - real runtime-image stdout protocol smoke test
+- complete Compose success, handler-error, timeout, invalid-output, worker-crash
+  recovery, log, and metrics workflows
 - package upload and invocation creation
 - Redis Streams producer/consumer parsing
 - Docker runtime executor behavior

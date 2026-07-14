@@ -35,6 +35,7 @@ asyncio_mode = "auto"
 markers = [
   "integration: requires real PostgreSQL and Redis services",
   "docker: requires a Docker daemon and the runtime image",
+  "e2e: requires the complete Docker Compose stack",
 ]
 
 [tool.mypy]

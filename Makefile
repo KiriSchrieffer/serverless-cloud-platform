@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: api worker frontend test quality integration docker-smoke benchmark runtime-image compose-up compose-down
+.PHONY: api worker frontend test quality integration docker-smoke e2e benchmark runtime-image compose-up compose-down
 
 api:
 	uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
@@ -24,6 +24,9 @@ integration:
 
 docker-smoke: runtime-image
 	RUN_DOCKER_TESTS=1 $(PYTHON) -m pytest tests/integration/test_runtime_container.py
+
+e2e:
+	RUN_E2E_TESTS=1 $(PYTHON) -m pytest tests/e2e/test_compose_workflows.py
 
 benchmark:
 	$(PYTHON) benchmarks/run_benchmark.py

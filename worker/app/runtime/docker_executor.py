@@ -219,6 +219,10 @@ class DockerRuntimeExecutor:
                 security_opt=["no-new-privileges"],
                 pids_limit=64,
                 tmpfs={"/tmp": "rw,noexec,nosuid,size=64m"},
+                labels={
+                    "serverless.platform.runtime": "true",
+                    "serverless.platform.invocation-id": str(spec.invocation_id),
+                },
                 remove=False,
             )
             wait_result = container.wait(timeout=spec.timeout_seconds)

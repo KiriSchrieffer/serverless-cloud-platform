@@ -86,6 +86,7 @@ jobs:
 
   docker-smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -97,3 +98,20 @@ jobs:
       - run: pytest tests/integration/test_runtime_container.py -m docker
         env:
           RUN_DOCKER_TESTS: "1"
+      - run: docker compose up --build --detach
+      - run: pytest tests/e2e/test_compose_workflows.py -m e2e
+        env:
+          RUN_E2E_TESTS: "1"
+      - name: Show Compose state and logs
+        if: failure()
+        run: |
+          docker compose ps --all
+          docker compose logs --no-color
+      - name: Stop Compose stack
+        if: always()
+        run: |
+          docker compose down --volumes --remove-orphans
+          runtime_containers="$(docker ps --all --quiet --filter label=serverless.platform.runtime=true)"
+          if [ -n "$runtime_containers" ]; then
+            docker rm --force $runtime_containers
+          fi
