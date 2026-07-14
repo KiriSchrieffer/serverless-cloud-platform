@@ -401,6 +401,18 @@ Required views:
 - Metrics page with queue length, throughput, p50/p95/p99 latency, cold starts,
   retries, and timeouts.
 
+Implemented metric semantics:
+
+- Queue depth counts owner-scoped invocations waiting in `QUEUED` or `RETRYING`.
+- Queue age is time since the oldest waiting invocation was originally queued.
+- Pending dispatches and their oldest age expose transactional-outbox backlog.
+- Throughput is the number of owner-scoped invocations completed in the trailing
+  minute.
+- Success and error rates use terminal invocations as the denominator.
+- End-to-end latency spans `queued_at` through `completed_at`; p50, p95, and p99
+  use nearest-rank percentiles.
+- Retry count sums completed attempts beyond the first attempt per invocation.
+
 Important latency metrics:
 
 - Queue latency: worker start time minus queued time.

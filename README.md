@@ -27,6 +27,10 @@ JWT authentication, Redis rate limiting, metrics, logs, and benchmark evidence.
 - Applies an atomic Redis token bucket before invocation records enter the
   transactional outbox, with a default limit of 100 invocations per minute.
 - Exposes worker health and invocation metrics APIs.
+- Reports queue depth and age, pending dispatches, retries, trailing-minute
+  throughput, terminal error rate, and end-to-end p50/p95/p99 latency.
+- Provides an authenticated Dashboard workflow for function creation, ZIP
+  upload, invocation, result/log inspection, and operational refresh.
 - Provides local benchmark workloads and a reproducible benchmark report.
 
 ## Architecture
@@ -34,6 +38,8 @@ JWT authentication, Redis rate limiting, metrics, logs, and benchmark evidence.
 ```mermaid
 flowchart LR
     Client["Client or benchmark runner"] --> API["FastAPI API"]
+    Browser["Dashboard on :3000"] --> Frontend["Nginx + React"]
+    Frontend --> API
     API --> DB["PostgreSQL metadata + outbox"]
     DB --> Dispatcher["Outbox dispatcher"]
     Dispatcher --> Queue["Redis Streams"]
@@ -90,12 +96,20 @@ This starts:
 - a one-shot Alembic database migration
 - the Python 3.11 runtime image build
 - FastAPI API on `http://localhost:8000`
+- React Dashboard on `http://localhost:3000`
 - transactional outbox dispatcher
 - Worker process connected to Redis Streams
 
 The compose setup uses `.env.example` for local defaults. PostgreSQL and Redis
 must pass their health checks, and the migration must complete, before the API
-and worker start.
+and worker start. The Dashboard waits for the API health check and proxies
+browser requests from `/api` to FastAPI, so no separate frontend command is
+required for the full Compose stack.
+
+Open `http://localhost:3000`, register a local account, then use the three-step
+Deploy & Invoke panel to create a function, upload its ZIP package, and invoke
+it. Accepted invocations automatically open in the detail panel for refresh,
+result, error, and log inspection.
 
 ## Run the Demo Invocation
 
@@ -232,7 +246,7 @@ Install local test dependencies:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -e ".[test]"
+.venv/bin/python -m pip install -e ".[test,worker,dev]"
 ```
 
 Run the test suite:
@@ -240,13 +254,30 @@ Run the test suite:
 ```bash
 python3 -m compileall backend worker benchmarks tests
 .venv/bin/python -m pytest
+ruff check backend worker benchmarks tests
+mypy backend/app worker/app benchmarks
 git diff --check
+```
+
+Real service checks are intentionally opt-in. With PostgreSQL and Redis running
+and migrations applied:
+
+```bash
+RUN_INTEGRATION_TESTS=1 .venv/bin/python -m pytest tests/integration/test_postgres_redis.py
+```
+
+With Docker running and the runtime image built:
+
+```bash
+make docker-smoke
 ```
 
 Current test coverage includes:
 
 - API health and function registry behavior
 - registration, password hashing, JWT validation, user isolation, and rate limits
+- real PostgreSQL concurrent idempotency and Redis atomic token-bucket checks
+- real runtime-image stdout protocol smoke test
 - package upload and invocation creation
 - Redis Streams producer/consumer parsing
 - Docker runtime executor behavior
@@ -262,3 +293,5 @@ Current test coverage includes:
 - Docker runtime isolation is not production-grade sandboxing.
 - Autoscaling and Kubernetes scheduling are out of scope for this MVP.
 - API keys, refresh tokens, password reset, and account administration are not implemented.
+- Real PostgreSQL, Redis, and runtime-container tests require their external
+  services and therefore skip in the default fast unit-test command.

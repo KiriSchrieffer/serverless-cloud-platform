@@ -17,6 +17,11 @@ documented verification evidence are all present.
   JWT login, token-derived ownership, cross-user isolation, an atomic Redis
   invocation token bucket, and dashboard authentication are present. Real Redis
   verification remains part of Milestone 2 and release-candidate testing.
+- Milestone 5 implementation is present: expanded operational metrics, a
+  no-curl Dashboard workflow, a Compose-served frontend, opt-in real service
+  tests, and CI gates for lint, typing, migrations, integration, frontend, and
+  Docker runtime smoke. GitHub CI execution and final Docker-enabled validation
+  remain pending.
 
 ## Delivery Principles
 
