@@ -202,9 +202,9 @@ def test_timeout_kills_runtime_and_marks_invocation(compose_api: ComposeApi) -> 
 
     invocation = compose_api.invoke(function_name, {})
 
-    assert invocation["status"] == "TIMEOUT"
-    assert invocation["error_type"] == "TimeoutError"
-    assert invocation["attempt_count"] == 1
+    assert invocation["status"] == "TIMEOUT", invocation
+    assert invocation["error_type"] == "TimeoutError", invocation
+    assert invocation["attempt_count"] == 1, invocation
 
 
 def test_empty_runtime_output_is_rejected(compose_api: ComposeApi) -> None:
@@ -259,8 +259,8 @@ def test_metrics_reflect_completed_e2e_workflows(compose_api: ComposeApi) -> Non
     assert summary["invocations"]["total"] == len(compose_api.invocation_ids)
     assert summary["invocations"]["terminal"] == len(compose_api.invocation_ids)
     assert summary["invocations"]["succeeded"] == 2
-    assert summary["invocations"]["failed"] == 2
-    assert summary["invocations"]["timeout"] == 1
+    assert summary["invocations"]["failed"] == 2, summary
+    assert summary["invocations"]["timeout"] == 1, summary
     assert summary["invocations"]["p50_latency_ms"] is not None
     assert summary["queue"]["depth"] == 0
     assert summary["queue"]["pending_dispatches"] == 0

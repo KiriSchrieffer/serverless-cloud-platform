@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,6 +19,8 @@ from backend.app.models.function import Function, FunctionVersion
 from backend.app.models.invocation import Invocation
 from worker.app.core.config import settings
 from worker.app.queue.consumer import InvocationTask
+
+logger = logging.getLogger(__name__)
 
 JsonValue = dict[str, Any] | list[Any] | str | int | float | bool | None
 
@@ -225,7 +228,17 @@ class DockerRuntimeExecutor:
                 },
                 remove=False,
             )
-            wait_result = container.wait(timeout=spec.timeout_seconds)
+            try:
+                wait_result = container.wait(timeout=spec.timeout_seconds)
+            except Exception as exc:
+                if not self.is_timeout_error(exc):
+                    raise
+                return self.build_timeout_result(
+                    spec=spec,
+                    container=container,
+                    started=started,
+                )
+
             duration_ms = self.elapsed_ms(started)
             exit_code = self.extract_exit_code(wait_result)
             stdout = self.read_logs(container, stdout=True, stderr=False)
@@ -239,28 +252,75 @@ class DockerRuntimeExecutor:
                 logs_ref=logs_ref,
                 container_id=getattr(container, "id", None),
             )
-        except Exception as exc:
-            if not self.is_timeout_error(exc):
-                raise
-
-            duration_ms = self.elapsed_ms(started)
-            if container is not None:
-                container.kill()
-                stderr = self.read_logs(container, stdout=False, stderr=True)
-            else:
-                stderr = b""
-
-            logs_ref = self.write_logs(spec.invocation_id, stderr)
-            return RuntimeExecutionResult.timed_out(
-                f"Invocation exceeded {spec.timeout_seconds:g}s timeout",
-                duration_ms=duration_ms,
-                logs_ref=logs_ref,
-                container_id=getattr(container, "id", None),
-            )
         finally:
             if container is not None:
-                container.remove(force=True)
+                self.remove_container(container, invocation_id=spec.invocation_id)
+            self.remove_input(input_path, invocation_id=spec.invocation_id)
+
+    def build_timeout_result(
+        self,
+        *,
+        spec: RuntimeInvocationSpec,
+        container: Any,
+        started: float,
+    ) -> RuntimeExecutionResult:
+        try:
+            container.kill()
+        except Exception:
+            logger.warning(
+                "Failed to kill timed-out runtime container for invocation %s",
+                spec.invocation_id,
+                exc_info=True,
+            )
+
+        try:
+            stderr = self.read_logs(container, stdout=False, stderr=True)
+        except Exception:
+            logger.warning(
+                "Failed to read timed-out runtime logs for invocation %s",
+                spec.invocation_id,
+                exc_info=True,
+            )
+            stderr = b""
+
+        try:
+            logs_ref = self.write_logs(spec.invocation_id, stderr)
+        except OSError:
+            logger.warning(
+                "Failed to persist timed-out runtime logs for invocation %s",
+                spec.invocation_id,
+                exc_info=True,
+            )
+            logs_ref = None
+
+        return RuntimeExecutionResult.timed_out(
+            f"Invocation exceeded {spec.timeout_seconds:g}s timeout",
+            duration_ms=self.elapsed_ms(started),
+            logs_ref=logs_ref,
+            container_id=getattr(container, "id", None),
+        )
+
+    @staticmethod
+    def remove_container(container: Any, *, invocation_id: UUID) -> None:
+        try:
+            container.remove(force=True)
+        except Exception:
+            logger.warning(
+                "Failed to remove runtime container for invocation %s",
+                invocation_id,
+                exc_info=True,
+            )
+
+    @staticmethod
+    def remove_input(input_path: Path, *, invocation_id: UUID) -> None:
+        try:
             input_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning(
+                "Failed to remove runtime input for invocation %s",
+                invocation_id,
+                exc_info=True,
+            )
 
     def build_environment(
         self,
@@ -473,5 +533,28 @@ class DockerRuntimeExecutor:
         return logs or b""
 
     @staticmethod
-    def is_timeout_error(exc: Exception) -> bool:
-        return isinstance(exc, TimeoutError) or "Timeout" in exc.__class__.__name__
+    def is_timeout_error(exc: BaseException) -> bool:
+        """Recognize timeouts wrapped by requests, urllib3, or Docker transports."""
+        pending = [exc]
+        seen: set[int] = set()
+        while pending:
+            current = pending.pop()
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+
+            class_name = current.__class__.__name__.lower()
+            message = str(current).lower()
+            if (
+                isinstance(current, TimeoutError)
+                or "timeout" in class_name
+                or "read timed out" in message
+                or "read timeout" in message
+            ):
+                return True
+
+            for linked in (current.__cause__, current.__context__):
+                if linked is not None:
+                    pending.append(linked)
+            pending.extend(arg for arg in current.args if isinstance(arg, BaseException))
+        return False

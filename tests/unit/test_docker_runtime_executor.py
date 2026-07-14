@@ -24,12 +24,20 @@ class FakeContainer:
         stderr: bytes = b"",
         status_code: int = 0,
         timeout: bool = False,
+        wait_error: Exception | None = None,
+        kill_error: Exception | None = None,
+        logs_error: Exception | None = None,
+        remove_error: Exception | None = None,
     ) -> None:
         self.id = "container-123"
         self.stdout = stdout
         self.stderr = stderr
         self.status_code = status_code
         self.timeout = timeout
+        self.wait_error = wait_error
+        self.kill_error = kill_error
+        self.logs_error = logs_error
+        self.remove_error = remove_error
         self.wait_timeout = None
         self.killed = False
         self.removed = False
@@ -38,9 +46,13 @@ class FakeContainer:
         self.wait_timeout = timeout
         if self.timeout:
             raise TimeoutError("container deadline exceeded")
+        if self.wait_error is not None:
+            raise self.wait_error
         return {"StatusCode": self.status_code}
 
     def logs(self, *, stdout: bool, stderr: bool) -> bytes:
+        if self.logs_error is not None:
+            raise self.logs_error
         if stdout:
             return self.stdout
         if stderr:
@@ -49,9 +61,13 @@ class FakeContainer:
 
     def kill(self) -> None:
         self.killed = True
+        if self.kill_error is not None:
+            raise self.kill_error
 
     def remove(self, *, force: bool) -> None:
         self.removed = force
+        if self.remove_error is not None:
+            raise self.remove_error
 
 
 class FakeContainers:
@@ -77,6 +93,19 @@ class FakeContainers:
 class FakeDockerClient:
     def __init__(self, container: FakeContainer) -> None:
         self.containers = FakeContainers(container)
+
+
+def test_docker_runtime_executor_recognizes_wrapped_transport_timeouts() -> None:
+    nested_timeout = ConnectionError(
+        "connection aborted",
+        RuntimeError("transport failed", TimeoutError("socket deadline exceeded")),
+    )
+
+    assert DockerRuntimeExecutor.is_timeout_error(nested_timeout) is True
+    assert DockerRuntimeExecutor.is_timeout_error(
+        ConnectionError("Docker wait connection failed: Read timed out")
+    ) is True
+    assert DockerRuntimeExecutor.is_timeout_error(ConnectionError("connection reset")) is False
 
 
 @pytest.mark.asyncio
@@ -224,6 +253,63 @@ async def test_docker_runtime_executor_returns_timeout_and_kills_container(
     assert result.error_type == "TimeoutError"
     assert "30s timeout" in result.error_message
     assert fake_container.killed is True
+    assert fake_container.removed is True
+
+
+@pytest.mark.asyncio
+async def test_docker_runtime_executor_preserves_wrapped_timeout_when_cleanup_fails(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    package_path = tmp_path / "function.zip"
+    package_path.write_bytes(b"zip-content")
+    wrapped_timeout = ConnectionError("Docker wait connection failed: Read timed out")
+    fake_container = FakeContainer(
+        wait_error=wrapped_timeout,
+        kill_error=RuntimeError("kill failed"),
+        logs_error=RuntimeError("logs failed"),
+        remove_error=RuntimeError("remove failed"),
+    )
+    docker_client = FakeDockerClient(fake_container)
+
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, package_path=package_path)
+        result = await DockerRuntimeExecutor(
+            session,
+            docker_client=docker_client,
+            workspace_root=tmp_path,
+            storage_root=tmp_path / "storage",
+            clock=lambda: invocation.queued_at,
+        ).execute(make_task(invocation))
+
+    assert result.status == InvocationAttemptStatus.TIMEOUT
+    assert result.error_type == "TimeoutError"
+    assert result.logs_ref is None
+    assert fake_container.killed is True
+    assert fake_container.removed is True
+
+
+@pytest.mark.asyncio
+async def test_docker_runtime_executor_preserves_success_when_container_removal_fails(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    package_path = tmp_path / "function.zip"
+    package_path.write_bytes(b"zip-content")
+    fake_container = FakeContainer(remove_error=RuntimeError("remove failed"))
+    docker_client = FakeDockerClient(fake_container)
+
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, package_path=package_path)
+        result = await DockerRuntimeExecutor(
+            session,
+            docker_client=docker_client,
+            workspace_root=tmp_path,
+            storage_root=tmp_path / "storage",
+            clock=lambda: invocation.queued_at,
+        ).execute(make_task(invocation))
+
+    assert result.status == InvocationAttemptStatus.SUCCEEDED
     assert fake_container.removed is True
 
 
