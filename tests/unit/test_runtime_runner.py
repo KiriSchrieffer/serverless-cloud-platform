@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +28,24 @@ def test_runtime_runner_routes_handler_stdout_to_stderr(tmp_path: Path) -> None:
     assert result.stderr == "handling invocation-123\n"
 
 
+def test_runtime_runner_loads_handler_from_deployment_zip(tmp_path: Path) -> None:
+    package_path = tmp_path / "function.zip"
+    with ZipFile(package_path, "w", ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "main.py",
+            "def handler(event, context):\n"
+            "    return {'message': 'hello ' + event['name']}\n",
+        )
+
+    result = run_handler(package_path, payload={"name": "Ada"})
+
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == {
+        "ok": True,
+        "result": {"message": "hello Ada"},
+    }
+
+
 def test_runtime_runner_returns_clean_error_for_non_json_result(tmp_path: Path) -> None:
     (tmp_path / "main.py").write_text(
         "def handler(event, context):\n"
@@ -47,9 +66,9 @@ def test_runtime_runner_returns_clean_error_for_non_json_result(tmp_path: Path) 
     assert "TypeError" in result.stderr
 
 
-def run_handler(tmp_path: Path, *, payload: object) -> subprocess.CompletedProcess[str]:
+def run_handler(python_path: Path, *, payload: object) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
-    environment.update({"HANDLER": "main.handler", "PYTHONPATH": str(tmp_path)})
+    environment.update({"HANDLER": "main.handler", "PYTHONPATH": str(python_path)})
     message = {
         "event": payload,
         "context": {
