@@ -8,11 +8,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.domain.enums import InvocationStatus, WorkerStatus
+from backend.app.models.dispatch import InvocationDispatch
 from backend.app.models.invocation import Invocation, InvocationAttempt
 from backend.app.models.worker import Worker
 from backend.app.schemas.metrics import (
     InvocationMetricsSummary,
     MetricsSummary,
+    QueueMetricsSummary,
     WorkerMetricsSummary,
 )
 from backend.app.schemas.worker import WorkerRead
@@ -42,19 +44,37 @@ class PlatformMetricsService:
         owner_id: UUID,
         stale_after_seconds: int,
     ) -> MetricsSummary:
+        now = self.utcnow()
         return MetricsSummary(
-            invocations=await self.get_invocation_summary(owner_id),
+            invocations=await self.get_invocation_summary(owner_id, now=now),
+            queue=await self.get_queue_summary(owner_id, now=now),
             workers=await self.get_worker_summary(stale_after_seconds),
         )
 
-    async def get_invocation_summary(self, owner_id: UUID) -> InvocationMetricsSummary:
+    async def get_invocation_summary(
+        self,
+        owner_id: UUID,
+        *,
+        now: datetime,
+    ) -> InvocationMetricsSummary:
         status_counts = await self.get_invocation_status_counts(owner_id)
         total = sum(status_counts.values())
         succeeded = status_counts[InvocationStatus.SUCCEEDED]
+        errors = sum(
+            status_counts[status]
+            for status in (
+                InvocationStatus.FAILED,
+                InvocationStatus.TIMEOUT,
+                InvocationStatus.CANCELED,
+            )
+        )
+        terminal = succeeded + errors
         execution_durations = await self.get_execution_durations(owner_id)
+        invocation_durations = await self.get_invocation_durations(owner_id)
 
         return InvocationMetricsSummary(
             total=total,
+            terminal=terminal,
             queued=status_counts[InvocationStatus.QUEUED],
             running=status_counts[InvocationStatus.RUNNING],
             retrying=status_counts[InvocationStatus.RETRYING],
@@ -62,9 +82,46 @@ class PlatformMetricsService:
             failed=status_counts[InvocationStatus.FAILED],
             timeout=status_counts[InvocationStatus.TIMEOUT],
             canceled=status_counts[InvocationStatus.CANCELED],
-            success_rate=round(succeeded / total, 4) if total else 0.0,
+            success_rate=round(succeeded / terminal, 4) if terminal else 0.0,
+            error_rate=round(errors / terminal, 4) if terminal else 0.0,
+            retry_count=await self.get_retry_count(owner_id),
+            throughput_per_minute=await self.get_recent_throughput(owner_id, now=now),
+            average_latency_ms=self.average(invocation_durations),
+            p50_latency_ms=self.percentile(invocation_durations, 0.50),
+            p95_latency_ms=self.percentile(invocation_durations, 0.95),
+            p99_latency_ms=self.percentile(invocation_durations, 0.99),
             average_execution_ms=self.average(execution_durations),
             p95_execution_ms=self.percentile(execution_durations, 0.95),
+        )
+
+    async def get_queue_summary(self, owner_id: UUID, *, now: datetime) -> QueueMetricsSummary:
+        queue_statuses = (InvocationStatus.QUEUED, InvocationStatus.RETRYING)
+        depth, oldest_queued_at = (
+            await self.session.execute(
+                select(func.count(Invocation.id), func.min(Invocation.queued_at)).where(
+                    Invocation.owner_id == owner_id,
+                    Invocation.status.in_(queue_statuses),
+                )
+            )
+        ).one()
+        pending_dispatches, oldest_dispatch_at = (
+            await self.session.execute(
+                select(
+                    func.count(InvocationDispatch.id),
+                    func.min(InvocationDispatch.created_at),
+                )
+                .join(Invocation, InvocationDispatch.invocation_id == Invocation.id)
+                .where(
+                    Invocation.owner_id == owner_id,
+                    InvocationDispatch.published_at.is_(None),
+                )
+            )
+        ).one()
+        return QueueMetricsSummary(
+            depth=depth,
+            oldest_age_seconds=self.age_seconds(oldest_queued_at, now=now),
+            pending_dispatches=pending_dispatches,
+            oldest_dispatch_age_seconds=self.age_seconds(oldest_dispatch_at, now=now),
         )
 
     async def get_invocation_status_counts(
@@ -92,6 +149,34 @@ class PlatformMetricsService:
             )
         )
         return sorted(duration for duration in result if duration is not None)
+
+    async def get_invocation_durations(self, owner_id: UUID) -> list[int]:
+        result = await self.session.execute(
+            select(Invocation.queued_at, Invocation.completed_at).where(
+                Invocation.owner_id == owner_id,
+                Invocation.completed_at.is_not(None),
+            )
+        )
+        return sorted(
+            max(0, int((completed_at - queued_at).total_seconds() * 1000))
+            for queued_at, completed_at in result.all()
+        )
+
+    async def get_retry_count(self, owner_id: UUID) -> int:
+        attempt_counts = await self.session.scalars(
+            select(Invocation.attempt_count).where(Invocation.owner_id == owner_id)
+        )
+        return sum(max(0, attempt_count - 1) for attempt_count in attempt_counts)
+
+    async def get_recent_throughput(self, owner_id: UUID, *, now: datetime) -> float:
+        completed = await self.session.scalar(
+            select(func.count(Invocation.id)).where(
+                Invocation.owner_id == owner_id,
+                Invocation.completed_at.is_not(None),
+                Invocation.completed_at >= now - timedelta(minutes=1),
+            )
+        )
+        return float(completed or 0)
 
     async def get_worker_summary(self, stale_after_seconds: int) -> WorkerMetricsSummary:
         now = self.utcnow()
@@ -173,6 +258,12 @@ class PlatformMetricsService:
             return None
         index = max(0, ceil(len(values) * percentile) - 1)
         return float(values[index])
+
+    @staticmethod
+    def age_seconds(value: datetime | None, *, now: datetime) -> int | None:
+        if value is None:
+            return None
+        return max(0, int((now - value).total_seconds()))
 
     @staticmethod
     def utcnow() -> datetime:
