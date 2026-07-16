@@ -1,37 +1,40 @@
 # Serverless Cloud Platform
 
-A lightweight Lambda-style serverless platform for local development and systems
-experiments. The project demonstrates function registration, immutable version
-uploads, asynchronous invocation dispatch through Redis Streams, worker
-heartbeats, Docker-based Python runtime execution, retry/recovery behavior,
-JWT authentication, Redis rate limiting, metrics, logs, and benchmark evidence.
+[![CI](https://github.com/KiriSchrieffer/serverless-cloud-platform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/KiriSchrieffer/serverless-cloud-platform/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/KiriSchrieffer/serverless-cloud-platform?color=2ea44f)](https://github.com/KiriSchrieffer/serverless-cloud-platform/releases/tag/v1.0.0)
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
-## What It Does
+A Lambda-inspired, local-first serverless execution platform built to
+demonstrate control-plane, queueing, worker-recovery, and container-runtime
+engineering. FastAPI and PostgreSQL accept durable invocations, Redis Streams
+dispatches them to concurrent workers, Docker isolates Python handlers, and an
+authenticated React dashboard exposes the complete workflow.
 
-- Registers functions and uploads zipped Python handler packages.
-- Creates immutable function versions with runtime limits and package hashes.
-- Accepts async invocations through `POST /functions/{name}/invoke`.
-- Commits invocations and dispatch records atomically through a transactional
-  outbox, then publishes work to Redis Streams.
-- Executes user code in a Docker runtime from a worker process.
-- Stores terminal invocation status, result, error, and logs.
-- Recovers stale workers and reclaims pending Redis Stream messages.
-- Reclaims messages by stale consumer identity without stealing healthy
-  workers' long-running tasks.
-- Runs bounded concurrent invocations per worker and schedules retryable
-  failures through delayed outbox records with exponential backoff and jitter.
-- Deduplicates attempt deliveries and enforces one total invocation deadline
-  across queueing, retries, and Docker execution.
-- Authenticates API users with bcrypt password hashes and signed JWT access
-  tokens; owner identity never comes from a caller-supplied owner header.
-- Applies an atomic Redis token bucket before invocation records enter the
-  transactional outbox, with a default limit of 100 invocations per minute.
-- Exposes worker health and invocation metrics APIs.
-- Reports queue depth and age, pending dispatches, retries, trailing-minute
-  throughput, terminal error rate, and end-to-end p50/p95/p99 latency.
-- Provides an authenticated Dashboard workflow for function creation, ZIP
-  upload, invocation, result/log inspection, and operational refresh.
-- Provides local benchmark workloads and a reproducible benchmark report.
+[Architecture](#architecture) · [Quick Start](#local-quick-start) ·
+[Release Benchmark](#release-benchmark) ·
+[v1.0.0](https://github.com/KiriSchrieffer/serverless-cloud-platform/releases/tag/v1.0.0) ·
+[Design Notes](docs/design.md) · [Threat Model](docs/threat-model.md)
+
+> **Audited release evidence:** 750 cold-container invocations across nine
+> benchmark runs completed with a **100% success rate** through the complete
+> API → PostgreSQL outbox → Redis Streams → worker → Docker runtime path.
+> [Read the generated benchmark report](docs/benchmark-release-report.md).
+
+![Authenticated Serverless Cloud Platform dashboard](docs/assets/dashboard-overview.jpg)
+
+<p align="center"><em>Authenticated dashboard for deployment, invocation, logs, worker health, and platform metrics.</em></p>
+
+## Engineering Highlights
+
+| Area | Implementation |
+| --- | --- |
+| Durable dispatch | PostgreSQL transactional outbox commits invocation state and dispatch intent atomically before publishing to Redis Streams. |
+| Recovery and retries | Consumer-aware stale-work reclaim, delivery deduplication, bounded retries, exponential backoff with jitter, and one end-to-end deadline. |
+| Isolated execution | Immutable, hashed function versions run in per-invocation Python 3.11 containers with CPU, memory, timeout, and output limits. |
+| Concurrency correctness | Bounded worker concurrency, idempotency constraints, atomic Redis token-bucket rate limiting, and race-tested PostgreSQL/Redis paths. |
+| Security and ownership | Bcrypt password hashing, signed JWT authentication, owner-scoped resources, package validation, and an explicit threat model. |
+| Observability and UX | Worker heartbeats, queue/retry/error/latency metrics, persisted logs and results, plus an authenticated React operations dashboard. |
 
 ## Architecture
 
@@ -183,7 +186,7 @@ curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:8000/workers
 curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:8000/metrics/summary
 ```
 
-## Benchmarks
+## Release Benchmark
 
 Run a real local benchmark after `docker compose up --build` is running:
 
