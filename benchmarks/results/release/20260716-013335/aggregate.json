@@ -1,0 +1,304 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-16T01:40:04Z",
+  "environment": {
+    "host": "192.168.1.24",
+    "git_commit_sha": "eb421c01eaaf110e7d24f7690284e1556296a7ca",
+    "git_worktree_clean": true,
+    "operating_system": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu_model": "Apple M5",
+    "logical_cpu_count": 10,
+    "memory_bytes": 25769803776,
+    "python_version": "3.14.5",
+    "docker_server_version": "29.6.1",
+    "runtime_image_id": "sha256:d4ddc489ead4bc90d4c20284a56392a6c773660462a085082b60747f251fe9bc",
+    "compose_images": "[{\"ID\":\"sha256:bc59e2a0bbe4c9709af1226371aa8b7b799c8c12cb0e9919907e6a2014847940\",\"ContainerName\":\"serverlesscloudplatform-migrate-1\",\"Repository\":\"serverlesscloudplatform-migrate\",\"Tag\":\"latest\",\"Platform\":\"linux/arm64\",\"Size\":81986855,\"Created\":\"2026-07-16T01:20:19.361876214Z\",\"LastTagTime\":\"2026-07-16T01:25:26.826930009Z\"},{\"ID\":\"sha256:c0c1d0ee6f05d9370361430119bac7a961b2351ced0ca38f9e0221ab714bf055\",\"ContainerName\":\"serverlesscloudplatform-api-1\",\"Repository\":\"serverlesscloudplatform-api\",\"Tag\":\"latest\",\"Platform\":\"linux/arm64\",\"Size\":81986851,\"Created\":\"2026-07-16T01:20:19.361876214Z\",\"LastTagTime\":\"2026-07-16T01:25:26.828527134Z\"},{\"ID\":\"sha256:a7d802b08f69bf3758cf3a16b1d27506028de7efc927cfa7c7048dfa5b1bb26c\",\"ContainerName\":\"serverlesscloudplatform-dispatcher-1\",\"Repository\":\"serverlesscloudplatform-dispatcher\",\"Tag\":\"latest\",\"Platform\":\"linux/arm64\",\"Size\":81986858,\"Created\":\"2026-07-16T01:20:19.361876214Z\",\"LastTagTime\":\"2026-07-16T01:20:22.471202132Z\"},{\"ID\":\"sha256:d13122136bf222c19be96d195c486d2dad9a7daccd539e890f0d8d7600113c5a\",\"ContainerName\":\"serverlesscloudplatform-frontend-1\",\"Repository\":\"serverlesscloudplatform-frontend\",\"Tag\":\"latest\",\"Platform\":\"linux/arm64\",\"Size\":21890352,\"Created\":\"2026-07-16T01:19:52.86835384Z\",\"LastTagTime\":\"2026-07-16T01:25:35.972419722Z\"},{\"ID\":\"sha256:24c69b1f4aa1658a4dbc434f01354d11ab934d540765d063e12fa218be2bd58d\",\"ContainerName\":\"serverlesscloudplatform-worker-1\",\"Repository\":\"serverlesscloudplatform-worker\",\"Tag\":\"latest\",\"Platform\":\"linux/arm64\",\"Size\":83324149,\"Created\":\"2026-07-16T01:20:26.488434467Z\",\"LastTagTime\":\"2026-07-16T01:20:29.299990093Z\"},{\"ID\":\"sha256:b2b95679e3b46fb51864949ed25ea976fc3a6bcc00a40a1bc00d568cb2822e50\",\"ContainerName\":\"serverlesscloudplatform-redis-1\",\"Repository\":\"redis\",\"Tag\":\"7\",\"Platform\":\"linux/arm64/v8\",\"Size\":43498569,\"Created\":\"2026-06-24T01:38:08.111716047Z\",\"LastTagTime\":\"2026-07-06T11:37:00.054867423Z\"},{\"ID\":\"sha256:fe03a7605299a34ddf5e4f285dff78c3d7190a576b3c6b46f2fcff69f4bffd54\",\"ContainerName\":\"serverlesscloudplatform-postgres-1\",\"Repository\":\"postgres\",\"Tag\":\"16\",\"Platform\":\"linux/arm64/v8\",\"Size\":158821363,\"Created\":\"2026-06-24T01:36:31.752672519Z\",\"LastTagTime\":\"2026-07-06T11:36:51.511206668Z\"},{\"ID\":\"sha256:d4ddc489ead4bc90d4c20284a56392a6c773660462a085082b60747f251fe9bc\",\"ContainerName\":\"serverlesscloudplatform-runtime-image-1\",\"Repository\":\"serverless-python311-runtime\",\"Tag\":\"latest\",\"Platform\":\"linux/arm64\",\"Size\":45750657,\"Created\":\"2026-07-16T01:19:27.848417301Z\",\"LastTagTime\":\"2026-07-16T01:19:28.091145134Z\"}]",
+    "execution_mode": "cold container per invocation",
+    "active_worker_count": 1,
+    "total_worker_concurrency": 2
+  },
+  "repetitions": 3,
+  "scenarios": [
+    {
+      "name": "noop-100x10",
+      "scenario": {
+        "name": "noop-100x10",
+        "workload": "noop",
+        "invocations": 100,
+        "concurrency": 10,
+        "payload": {},
+        "timeout_seconds": 30,
+        "memory_limit_mb": 256,
+        "cpu_limit": 0.5
+      },
+      "repetitions": 3,
+      "all_runs_succeeded": true,
+      "median_summary": {
+        "throughput_invocations_per_second": 2.44,
+        "success_rate": 1.0,
+        "error_rate": 0.0,
+        "timeout_rate": 0.0,
+        "p50_latency_ms": 3420.34,
+        "p95_latency_ms": 6617.83,
+        "p99_latency_ms": 8348.62,
+        "average_queue_latency_ms": 3024.99,
+        "average_execution_latency_ms": 752.0,
+        "average_accept_latency_ms": 51.68
+      },
+      "runs": [
+        {
+          "generated_at": "2026-07-16T01:34:15Z",
+          "wall_duration_seconds": 37.532,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 2.66,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3420.34,
+            "p95_latency_ms": 6168.51,
+            "p99_latency_ms": 6489.7,
+            "average_queue_latency_ms": 2755.28,
+            "average_execution_latency_ms": 697.53,
+            "average_accept_latency_ms": 51.68
+          },
+          "raw_json_path": "benchmarks/results/release/20260716-013335/noop-100x10-run-1.json"
+        },
+        {
+          "generated_at": "2026-07-16T01:34:59Z",
+          "wall_duration_seconds": 42.996,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 2.33,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3470.36,
+            "p95_latency_ms": 7844.35,
+            "p99_latency_ms": 8348.62,
+            "average_queue_latency_ms": 3108.61,
+            "average_execution_latency_ms": 805.05,
+            "average_accept_latency_ms": 40.72
+          },
+          "raw_json_path": "benchmarks/results/release/20260716-013335/noop-100x10-run-2.json"
+        },
+        {
+          "generated_at": "2026-07-16T01:35:41Z",
+          "wall_duration_seconds": 41.011,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 2.44,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3197.69,
+            "p95_latency_ms": 6617.83,
+            "p99_latency_ms": 8465.81,
+            "average_queue_latency_ms": 3024.99,
+            "average_execution_latency_ms": 752.0,
+            "average_accept_latency_ms": 70.38
+          },
+          "raw_json_path": "benchmarks/results/release/20260716-013335/noop-100x10-run-3.json"
+        }
+      ]
+    },
+    {
+      "name": "sleep-200ms-100x10",
+      "scenario": {
+        "name": "sleep-200ms-100x10",
+        "workload": "sleep",
+        "invocations": 100,
+        "concurrency": 10,
+        "payload": {
+          "seconds": 0.2
+        },
+        "timeout_seconds": 30,
+        "memory_limit_mb": 256,
+        "cpu_limit": 0.5
+      },
+      "repetitions": 3,
+      "all_runs_succeeded": true,
+      "median_summary": {
+        "throughput_invocations_per_second": 1.96,
+        "success_rate": 1.0,
+        "error_rate": 0.0,
+        "timeout_rate": 0.0,
+        "p50_latency_ms": 4597.88,
+        "p95_latency_ms": 7407.67,
+        "p99_latency_ms": 7690.83,
+        "average_queue_latency_ms": 3736.75,
+        "average_execution_latency_ms": 964.56,
+        "average_accept_latency_ms": 73.75
+      },
+      "runs": [
+        {
+          "generated_at": "2026-07-16T01:36:21Z",
+          "wall_duration_seconds": 39.117,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 2.56,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3704.44,
+            "p95_latency_ms": 4541.95,
+            "p99_latency_ms": 4790.17,
+            "average_queue_latency_ms": 2848.53,
+            "average_execution_latency_ms": 737.59,
+            "average_accept_latency_ms": 39.39
+          },
+          "raw_json_path": "benchmarks/results/release/20260716-013335/sleep-200ms-100x10-run-1.json"
+        },
+        {
+          "generated_at": "2026-07-16T01:37:26Z",
+          "wall_duration_seconds": 64.826,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 1.54,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 5313.99,
+            "p95_latency_ms": 9588.92,
+            "p99_latency_ms": 11305.63,
+            "average_queue_latency_ms": 4841.47,
+            "average_execution_latency_ms": 1224.17,
+            "average_accept_latency_ms": 73.75
+          },
+          "raw_json_path": "benchmarks/results/release/20260716-013335/sleep-200ms-100x10-run-2.json"
+        },
+        {
+          "generated_at": "2026-07-16T01:38:18Z",
+          "wall_duration_seconds": 51.131,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 1.96,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 4597.88,
+            "p95_latency_ms": 7407.67,
+            "p99_latency_ms": 7690.83,
+            "average_queue_latency_ms": 3736.75,
+            "average_execution_latency_ms": 964.56,
+            "average_accept_latency_ms": 73.96
+          },
+          "raw_json_path": "benchmarks/results/release/20260716-013335/sleep-200ms-100x10-run-3.json"
+        }
+      ]
+    },
+    {
+      "name": "cpu-bound-50x5",
+      "scenario": {
+        "name": "cpu-bound-50x5",
+        "workload": "cpu_bound",
+        "invocations": 50,
+        "concurrency": 5,
+        "payload": {
+          "n": 250000
+        },
+        "timeout_seconds": 30,
+        "memory_limit_mb": 256,
+        "cpu_limit": 0.5
+      },
+      "repetitions": 3,
+      "all_runs_succeeded": true,
+      "median_summary": {
+        "throughput_invocations_per_second": 1.53,
+        "success_rate": 1.0,
+        "error_rate": 0.0,
+        "timeout_rate": 0.0,
+        "p50_latency_ms": 3177.45,
+        "p95_latency_ms": 4583.24,
+        "p99_latency_ms": 5327.82,
+        "average_queue_latency_ms": 1737.79,
+        "average_execution_latency_ms": 1211.18,
+        "average_accept_latency_ms": 53.45
+      },
+      "runs": [
+        {
+          "generated_at": "2026-07-16T01:38:51Z",
+          "wall_duration_seconds": 32.594,
+          "summary": {
+            "total_invocations": 50,
+            "status_counts": {
+              "SUCCEEDED": 50
+            },
+            "throughput_invocations_per_second": 1.53,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3177.45,
+            "p95_latency_ms": 4582.05,
+            "p99_latency_ms": 4847.77,
+            "average_queue_latency_ms": 1737.79,
+            "average_execution_latency_ms": 1211.18,
+            "average_accept_latency_ms": 50.37
+          },
+          "raw_json_path": "benchmarks/results/release/20260716-013335/cpu-bound-50x5-run-1.json"
+        },
+        {
+          "generated_at": "2026-07-16T01:39:24Z",
+          "wall_duration_seconds": 32.019,
+          "summary": {
+            "total_invocations": 50,
+            "status_counts": {
+              "SUCCEEDED": 50
+            },
+            "throughput_invocations_per_second": 1.56,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3012.45,
+            "p95_latency_ms": 4583.24,
+            "p99_latency_ms": 5327.82,
+            "average_queue_latency_ms": 1713.68,
+            "average_execution_latency_ms": 1182.16,
+            "average_accept_latency_ms": 53.45
+          },
+          "raw_json_path": "benchmarks/results/release/20260716-013335/cpu-bound-50x5-run-2.json"
+        },
+        {
+          "generated_at": "2026-07-16T01:40:04Z",
+          "wall_duration_seconds": 39.72,
+          "summary": {
+            "total_invocations": 50,
+            "status_counts": {
+              "SUCCEEDED": 50
+            },
+            "throughput_invocations_per_second": 1.26,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3641.23,
+            "p95_latency_ms": 6558.75,
+            "p99_latency_ms": 7101.27,
+            "average_queue_latency_ms": 2056.86,
+            "average_execution_latency_ms": 1465.21,
+            "average_accept_latency_ms": 72.04
+          },
+          "raw_json_path": "benchmarks/results/release/20260716-013335/cpu-bound-50x5-run-3.json"
+        }
+      ]
+    }
+  ]
+}

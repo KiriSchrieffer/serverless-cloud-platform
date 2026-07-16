@@ -47,6 +47,13 @@ no-op 100×10, sleep-200ms 100×10, and CPU-bound 50×5 scenarios three times,
 stores every raw run under `benchmarks/results/release/<timestamp>/`, and writes
 an aggregate median report to `docs/benchmark-release-report.md`.
 
+The audited release evidence for commit
+`eb421c01eaaf110e7d24f7690284e1556296a7ca` is stored under
+`benchmarks/results/release/20260716-013335/`. Its nine raw runs contain 750
+successful cold-container invocations; `aggregate.json` and
+`docs/benchmark-release-report.md` contain the corresponding three-run medians
+and reproducibility metadata.
+
 Useful workload examples:
 
 ```bash

@@ -198,17 +198,28 @@ The benchmark runner registers and logs in with local defaults. Override them
 with `BENCHMARK_EMAIL` and `BENCHMARK_PASSWORD`; credentials are never written
 to benchmark JSON or Markdown reports.
 
-Earlier single-run local Docker Compose results (useful for development, but not
-final resume evidence):
+Release-candidate results from clean commit
+`eb421c01eaaf110e7d24f7690284e1556296a7ca` are medians across three independent
+runs per scenario:
 
-| Workload | Invocations | Concurrency | Success rate | Throughput | p95 latency | Avg queue latency | Avg execution latency |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| noop | 100 | 10 | 100% | 4.22/sec | 2575.47 ms | 1899.81 ms | 216.72 ms |
-| sleep 0.2s | 100 | 10 | 100% | 2.26/sec | 4543.32 ms | 3673.18 ms | 425.3 ms |
+| Workload | Runs | Invocations/run | Clients | Success rate | Throughput | p50 latency | p95 latency | p99 latency |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| noop | 3 | 100 | 10 | 100% | 2.44/sec | 3420.34 ms | 6617.83 ms | 8348.62 ms |
+| sleep 0.2s | 3 | 100 | 10 | 100% | 1.96/sec | 4597.88 ms | 7407.67 ms | 7690.83 ms |
+| CPU-bound (`n=250000`) | 3 | 50 | 5 | 100% | 1.53/sec | 3177.45 ms | 4583.24 ms | 5327.82 ms |
 
-The reports are in `docs/benchmark-noop-100x10.md` and
-`docs/benchmark-sleep-100x10.md`. Raw JSON is stored in
-`benchmarks/results/noop-100x10.json` and `benchmarks/results/sleep-100x10.json`.
+The suite executed 750 total invocations with no failures. These measurements
+cover the complete API -> PostgreSQL outbox -> Redis Streams -> worker -> Docker
+runtime path, using a new container for every invocation. The measured topology
+was one worker with total worker concurrency 2 on an Apple M5 host with 10
+logical CPUs and 24 GiB RAM, using Docker 29.6.1. Client concurrency above the
+worker limit intentionally exercises queueing, so end-to-end latency includes
+both queue delay and cold-container startup.
+
+See `docs/benchmark-release-report.md` for the generated report and
+`benchmarks/results/release/20260716-013335/` for the aggregate plus all nine raw
+JSON runs. Earlier single-run files remain development artifacts and are not
+used as release or resume evidence.
 
 For release-candidate evidence, start from a clean, committed worktree and run:
 

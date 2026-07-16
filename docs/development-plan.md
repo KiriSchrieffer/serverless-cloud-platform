@@ -22,9 +22,12 @@ documented verification evidence are all present.
   Compose workflows for success, handler failure, timeout, invalid runtime
   output, memory-limit enforcement, log retrieval, metrics, and recovery after a
   real worker process is killed.
-- Milestone 6 remains intentionally deferred as a stretch goal. Milestone 7 is
-  in progress: the repeated-run evidence harness is present, while the final
-  clean-state benchmark execution and versioned results remain pending.
+- Milestone 7 is complete. The release suite ran from clean commit
+  `eb421c01eaaf110e7d24f7690284e1556296a7ca` against fresh PostgreSQL, Redis,
+  storage, and Compose state. Nine versioned raw runs contain 750 successful
+  invocations, and their independently audited medians are recorded in the
+  generated release report. Milestone 6 remains intentionally deferred as an
+  optional stretch goal rather than an MVP requirement.
 
 ## Delivery Principles
 
@@ -164,3 +167,16 @@ Suggested scenarios:
 
 Resume metrics should use the median result across repeated runs and state the
 workload and concurrency explicitly.
+
+Completion evidence:
+
+- The clean-state suite completed three runs for each suggested performance
+  scenario with 100% success in all nine runs.
+- Median throughput was 2.44 invocations/second for no-op 100x10, 1.96 for sleep
+  200 ms 100x10, and 1.53 for CPU-bound 50x5.
+- The measured topology was one worker with total concurrency 2 and a cold
+  Docker container per invocation; queueing and container startup are included
+  in end-to-end latency.
+- `docs/benchmark-release-report.md` records the environment and aggregate
+  results. `benchmarks/results/release/20260716-013335/` contains all nine raw
+  JSON files and `aggregate.json`.
