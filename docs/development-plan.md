@@ -6,26 +6,25 @@ documented verification evidence are all present.
 
 ## Current Status
 
-- Milestone 0 implementation is complete; clean Docker startup and demo
-  verification remain pending until Docker is available.
-- Milestone 1 implementation and unit coverage are complete; real PostgreSQL
-  concurrent-idempotency verification belongs to Milestone 2.
+- Milestones 0 and 1 are complete, including clean Compose startup, migrations,
+  the demo path, durable dispatch, and real concurrent-idempotency verification.
 - Milestone 3 now has bounded worker concurrency, row-locked state changes,
   attempt uniqueness, delayed exponential-backoff retries, total deadline
   enforcement, duplicate-attempt suppression, and exact stale-consumer reclaim.
 - Milestone 4 implementation and unit coverage are complete: bcrypt registration,
   JWT login, token-derived ownership, cross-user isolation, an atomic Redis
-  invocation token bucket, and dashboard authentication are present. Real Redis
-  verification remains part of Milestone 2 and release-candidate testing.
-- Milestone 5 implementation is present: expanded operational metrics, a
+  invocation token bucket, dashboard authentication, and real Redis verification.
+- Milestone 5 is complete: expanded operational metrics, a
   no-curl Dashboard workflow, a Compose-served frontend, opt-in real service
   tests, and CI gates for lint, typing, migrations, integration, frontend, and
-  Docker runtime smoke. GitHub CI execution and final Docker-enabled validation
-  remain pending.
-- Milestone 2 now has executable real PostgreSQL/Redis tests plus black-box
+  Docker runtime and full-stack E2E tests. GitHub CI is passing.
+- Milestone 2 is complete with executable real PostgreSQL/Redis tests plus black-box
   Compose workflows for success, handler failure, timeout, invalid runtime
-  output, log retrieval, metrics, and recovery after a real worker process is
-  killed. Docker-enabled CI is the remaining validation gate.
+  output, memory-limit enforcement, log retrieval, metrics, and recovery after a
+  real worker process is killed.
+- Milestone 6 remains intentionally deferred as a stretch goal. Milestone 7 is
+  in progress: the repeated-run evidence harness is present, while the final
+  clean-state benchmark execution and versioned results remain pending.
 
 ## Delivery Principles
 
@@ -75,8 +74,8 @@ Deliverables:
 
 - Tests backed by real PostgreSQL and Redis.
 - Docker runtime tests using the real runtime image.
-- End-to-end tests for success, handler error, timeout, invalid output, and log
-  retrieval.
+- End-to-end tests for success, handler error, timeout, memory limit, invalid
+  output, and log retrieval.
 - Process-level worker crash and pending-message recovery test.
 
 Exit criteria:

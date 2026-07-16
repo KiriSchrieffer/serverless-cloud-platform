@@ -32,6 +32,7 @@ class ComposeApi:
         *,
         source: str,
         timeout_seconds: int = 10,
+        memory_limit_mb: int = 256,
     ) -> str:
         function_name = f"e2e-{uuid4().hex[:12]}"
         create_response = self.client.post("/functions", json={"name": function_name})
@@ -42,7 +43,7 @@ class ComposeApi:
             data={
                 "runtime": "python3.11",
                 "handler": "main.handler",
-                "memory_limit_mb": "256",
+                "memory_limit_mb": str(memory_limit_mb),
                 "cpu_limit": "0.5",
                 "timeout_seconds": str(timeout_seconds),
             },
@@ -225,6 +226,27 @@ def test_empty_runtime_output_is_rejected(compose_api: ComposeApi) -> None:
     assert compose_api.logs(str(invocation["id"])) == ""
 
 
+def test_memory_limit_kills_runtime_and_records_explicit_error(
+    compose_api: ComposeApi,
+) -> None:
+    function_name = compose_api.deploy(
+        source=(
+            "def handler(event, context):\n"
+            "    data = bytearray(512 * 1024 * 1024)\n"
+            "    return {'allocated': len(data)}\n"
+        ),
+        timeout_seconds=20,
+        memory_limit_mb=64,
+    )
+
+    invocation = compose_api.invoke(function_name, {})
+
+    assert invocation["status"] == "FAILED", invocation
+    assert invocation["error_type"] == "MemoryLimitExceeded", invocation
+    assert "64 MiB memory limit" in str(invocation["error_message"]), invocation
+    assert invocation["attempt_count"] == 1, invocation
+
+
 def test_worker_process_crash_recovers_pending_invocation(compose_api: ComposeApi) -> None:
     function_name = compose_api.deploy(
         source=(
@@ -259,7 +281,7 @@ def test_metrics_reflect_completed_e2e_workflows(compose_api: ComposeApi) -> Non
     assert summary["invocations"]["total"] == len(compose_api.invocation_ids)
     assert summary["invocations"]["terminal"] == len(compose_api.invocation_ids)
     assert summary["invocations"]["succeeded"] == 2
-    assert summary["invocations"]["failed"] == 2, summary
+    assert summary["invocations"]["failed"] == 3, summary
     assert summary["invocations"]["timeout"] == 1, summary
     assert summary["invocations"]["p50_latency_ms"] is not None
     assert summary["queue"]["depth"] == 0

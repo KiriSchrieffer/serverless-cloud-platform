@@ -7,7 +7,10 @@ import argparse
 import io
 import json
 import os
+import platform
 import socket
+import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -17,7 +20,7 @@ import zipfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from math import ceil
 from pathlib import Path
@@ -80,6 +83,7 @@ class BenchmarkReport:
     config: BenchmarkConfig
     summary: dict[str, Any]
     samples: list[InvocationSample]
+    environment: dict[str, Any] = field(default_factory=dict)
 
 
 class ApiClient:
@@ -246,6 +250,25 @@ def build_config(args: argparse.Namespace) -> BenchmarkConfig:
     )
 
 
+def validate_output_policy(
+    config: BenchmarkConfig,
+    *,
+    report_path: Path,
+    json_output_path: Path,
+) -> None:
+    if config.invocations >= 20:
+        return
+    uses_versioned_defaults = (
+        report_path.resolve() == DEFAULT_REPORT_PATH.resolve()
+        or json_output_path.resolve() == DEFAULT_JSON_OUTPUT_PATH.resolve()
+    )
+    if uses_versioned_defaults:
+        raise SystemExit(
+            "Small-sample runs cannot overwrite versioned benchmark evidence; "
+            "provide explicit --report-path and --json-output-path"
+        )
+
+
 def load_payload(payload_json: str, payload_file: Path | None) -> Any:
     raw_payload = payload_file.read_text(encoding="utf-8") if payload_file else payload_json
     try:
@@ -342,6 +365,7 @@ def run_benchmark(
     *,
     auth_email: str,
     auth_password: str,
+    environment: dict[str, Any] | None = None,
 ) -> BenchmarkReport:
     api = ApiClient(config.api_url, timeout_seconds=config.http_timeout_seconds)
     api.authenticate(auth_email, auth_password)
@@ -360,7 +384,12 @@ def run_benchmark(
 
     wall_duration_seconds = round(time.perf_counter() - started, 3)
     samples.sort(key=lambda sample: sample.index)
-    return build_report(config, samples, wall_duration_seconds)
+    return build_report(
+        config,
+        samples,
+        wall_duration_seconds,
+        environment=environment or collect_environment(api),
+    )
 
 
 def run_single_invocation(
@@ -467,6 +496,8 @@ def build_report(
     config: BenchmarkConfig,
     samples: list[InvocationSample],
     wall_duration_seconds: float,
+    *,
+    environment: dict[str, Any] | None = None,
 ) -> BenchmarkReport:
     return BenchmarkReport(
         generated_at=utc_now_iso(),
@@ -475,7 +506,108 @@ def build_report(
         config=config,
         summary=summarize_samples(samples, wall_duration_seconds),
         samples=samples,
+        environment=environment or {},
     )
+
+
+def collect_environment(api: ApiClient | None = None) -> dict[str, Any]:
+    git_status = command_output(["git", "status", "--porcelain"])
+    environment: dict[str, Any] = {
+        "host": socket.gethostname(),
+        "git_commit_sha": command_output(["git", "rev-parse", "HEAD"]) or "unknown",
+        "git_worktree_clean": git_status == "",
+        "operating_system": platform.platform(),
+        "architecture": platform.machine(),
+        "cpu_model": detect_cpu_model(),
+        "logical_cpu_count": os.cpu_count(),
+        "memory_bytes": detect_memory_bytes(),
+        "python_version": platform.python_version(),
+        "docker_server_version": command_output(
+            ["docker", "version", "--format", "{{.Server.Version}}"]
+        ),
+        "runtime_image_id": command_output(
+            [
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+                "{{.Id}}",
+                "serverless-python311-runtime:latest",
+            ]
+        ),
+        "compose_images": command_output(["docker", "compose", "images", "--format", "json"]),
+        "execution_mode": "cold container per invocation",
+    }
+    if api is not None:
+        _, workers = api.json_request("GET", "/workers", expected_statuses=(200,))
+        environment.update(active_worker_topology(workers))
+    return environment
+
+
+def active_worker_topology(workers: object) -> dict[str, int]:
+    if not isinstance(workers, list):
+        return {"active_worker_count": 0, "total_worker_concurrency": 0}
+    active_workers = [
+        worker
+        for worker in workers
+        if isinstance(worker, dict)
+        and worker.get("stale") is False
+        and worker.get("status") != "OFFLINE"
+    ]
+    return {
+        "active_worker_count": len(active_workers),
+        "total_worker_concurrency": sum(
+            int(worker.get("max_concurrency", 0)) for worker in active_workers
+        ),
+    }
+
+
+def command_output(command: Sequence[str]) -> str | None:
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
+def detect_cpu_model() -> str:
+    override = os.getenv("BENCHMARK_CPU_MODEL")
+    if override:
+        return override
+    if sys.platform == "darwin":
+        return (
+            command_output(["sysctl", "-n", "machdep.cpu.brand_string"])
+            or command_output(["sysctl", "-n", "hw.model"])
+            or platform.processor()
+        )
+    cpuinfo = Path("/proc/cpuinfo")
+    if cpuinfo.is_file():
+        for line in cpuinfo.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.lower().startswith("model name"):
+                return line.partition(":")[2].strip()
+    return platform.processor() or "unknown"
+
+
+def detect_memory_bytes() -> int | None:
+    if sys.platform == "darwin":
+        value = command_output(["sysctl", "-n", "hw.memsize"])
+        if value is not None:
+            try:
+                return int(value)
+            except ValueError:
+                return None
+    try:
+        return int(os.sysconf("SC_PHYS_PAGES")) * int(os.sysconf("SC_PAGE_SIZE"))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
 
 
 def summarize_samples(
@@ -555,7 +687,22 @@ def render_markdown_report(report: BenchmarkReport) -> str:
             "## Environment",
             "",
             f"- Generated at: {report.generated_at}",
-            f"- Host: {report.host}",
+            f"- Host: {report.environment.get('host', report.host)}",
+            f"- Commit SHA: {report.environment.get('git_commit_sha', 'unknown')}",
+            f"- Git worktree clean: {report.environment.get('git_worktree_clean', 'unknown')}",
+            f"- Operating system: {report.environment.get('operating_system', 'unknown')}",
+            f"- Architecture: {report.environment.get('architecture', 'unknown')}",
+            f"- CPU: {report.environment.get('cpu_model', 'unknown')}",
+            f"- Logical CPUs: {report.environment.get('logical_cpu_count', 'unknown')}",
+            f"- Memory bytes: {report.environment.get('memory_bytes', 'unknown')}",
+            f"- Docker server: {report.environment.get('docker_server_version', 'unknown')}",
+            f"- Runtime image: {report.environment.get('runtime_image_id', 'unknown')}",
+            f"- Active workers: {report.environment.get('active_worker_count', 'unknown')}",
+            (
+                "- Total worker concurrency: "
+                f"{report.environment.get('total_worker_concurrency', 'unknown')}"
+            ),
+            f"- Execution mode: {report.environment.get('execution_mode', 'unknown')}",
             f"- API URL: {config.api_url}",
             f"- Workload: {config.workload}",
             f"- Function name: {config.function_name}",
@@ -650,6 +797,11 @@ def timestamp_for_key() -> str:
 def main() -> None:
     args = parse_args()
     config = build_config(args)
+    validate_output_policy(
+        config,
+        report_path=args.report_path,
+        json_output_path=args.json_output_path,
+    )
     report = run_benchmark(
         config,
         auth_email=args.auth_email,

@@ -53,6 +53,20 @@ def test_retry_policy_does_not_retry_timeouts_by_default() -> None:
     assert decision.attempts_remaining == 2
 
 
+def test_retry_policy_does_not_retry_memory_limit_failures() -> None:
+    decision = RetryPolicy(max_attempts=3).decide(
+        execution_result=RuntimeExecutionResult.failed(
+            "MemoryLimitExceeded",
+            "runtime exceeded 64 MiB",
+            exit_code=137,
+        ),
+        attempt_number=1,
+    )
+
+    assert decision.should_retry is False
+    assert decision.attempts_remaining == 2
+
+
 def test_retry_policy_does_not_retry_successful_invocations() -> None:
     decision = RetryPolicy(max_attempts=3).decide(
         execution_result=RuntimeExecutionResult(

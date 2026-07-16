@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: api worker frontend test quality integration docker-smoke e2e benchmark runtime-image compose-up compose-down
+.PHONY: api worker frontend test quality integration docker-smoke e2e benchmark release-benchmark runtime-image compose-up compose-down
 
 api:
 	uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
@@ -30,6 +30,9 @@ e2e:
 
 benchmark:
 	$(PYTHON) benchmarks/run_benchmark.py
+
+release-benchmark:
+	$(PYTHON) -m benchmarks.run_release_suite
 
 runtime-image:
 	docker build -t serverless-python311-runtime:latest -f runtime/python311/Dockerfile .

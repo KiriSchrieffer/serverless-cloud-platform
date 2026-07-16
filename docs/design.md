@@ -848,25 +848,27 @@ Success criteria:
 - Rate-limited requests return 429 before queue insertion.
 - Dashboard shows real invocation and worker metrics.
 
-### Phase 3: Performance Features and Resume-Ready Evidence, 2 to 3 weeks
+### Phase 3: Resume-Ready Evidence and Optional Performance Features
 
 Deliverables:
 
 - Benchmark suite.
 - Benchmark report.
-- Warm-start container pool.
-- Local autoscaling simulation.
-- Optional resource-aware scheduling experiment.
 - Polished README with architecture diagram, demo instructions, and measured
   performance results.
+
+Post-MVP stretch goals:
+
+- Warm-start container pool.
+- Local autoscaling simulation.
+- Resource-aware scheduling experiment.
 
 Success criteria:
 
 - Benchmark report includes throughput, p95 latency, p99 latency, and error
   rate under concurrent workloads.
-- Warm start reduces median latency for repeated invocations of the same
-  function version.
-- Autoscaling experiment shows the effect of worker count on queue latency.
+- Every resume metric is backed by versioned raw results from repeated runs.
+- Any future warm-start or autoscaling claim includes a measured comparison.
 
 ## 14. Resume Positioning
 

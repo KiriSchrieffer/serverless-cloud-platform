@@ -198,7 +198,8 @@ The benchmark runner registers and logs in with local defaults. Override them
 with `BENCHMARK_EMAIL` and `BENCHMARK_PASSWORD`; credentials are never written
 to benchmark JSON or Markdown reports.
 
-Latest recorded local Docker Compose results:
+Earlier single-run local Docker Compose results (useful for development, but not
+final resume evidence):
 
 | Workload | Invocations | Concurrency | Success rate | Throughput | p95 latency | Avg queue latency | Avg execution latency |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -208,6 +209,18 @@ Latest recorded local Docker Compose results:
 The reports are in `docs/benchmark-noop-100x10.md` and
 `docs/benchmark-sleep-100x10.md`. Raw JSON is stored in
 `benchmarks/results/noop-100x10.json` and `benchmarks/results/sleep-100x10.json`.
+
+For release-candidate evidence, start from a clean, committed worktree and run:
+
+```bash
+make release-benchmark
+```
+
+The release suite refuses a dirty worktree, records the commit, host, Docker and
+runtime-image metadata, runs no-op, sleep, and CPU-bound scenarios three times
+each, preserves every raw JSON run, and generates median results in
+`docs/benchmark-release-report.md`. Small samples cannot overwrite the tracked
+default benchmark report; use explicit temporary output paths for smoke runs.
 
 Additional workloads:
 
@@ -284,8 +297,8 @@ Current test coverage includes:
 - registration, password hashing, JWT validation, user isolation, and rate limits
 - real PostgreSQL concurrent idempotency and Redis atomic token-bucket checks
 - real runtime-image stdout protocol smoke test
-- complete Compose success, handler-error, timeout, invalid-output, worker-crash
-  recovery, log, and metrics workflows
+- complete Compose success, handler-error, timeout, memory-limit, invalid-output,
+  worker-crash recovery, log, and metrics workflows
 - package upload and invocation creation
 - Redis Streams producer/consumer parsing
 - Docker runtime executor behavior

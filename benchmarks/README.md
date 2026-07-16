@@ -28,6 +28,25 @@ The runner will:
 - write `docs/benchmark-report.md`
 - write raw JSON to `benchmarks/results/latest.json`
 
+Runs with fewer than 20 invocations must use explicit `--report-path` and
+`--json-output-path` arguments, so a one-request smoke test cannot overwrite
+tracked performance evidence.
+
+## Release-candidate suite
+
+After committing all code and starting a clean Compose stack, run:
+
+```bash
+python3 -m benchmarks.run_release_suite
+```
+
+The suite requires a clean Git worktree and a live Docker server, runtime image,
+and worker. It captures the commit SHA, CPU/RAM, operating system, Docker and
+image identifiers, and worker topology before it writes output. It runs the
+no-op 100×10, sleep-200ms 100×10, and CPU-bound 50×5 scenarios three times,
+stores every raw run under `benchmarks/results/release/<timestamp>/`, and writes
+an aggregate median report to `docs/benchmark-release-report.md`.
+
 Useful workload examples:
 
 ```bash

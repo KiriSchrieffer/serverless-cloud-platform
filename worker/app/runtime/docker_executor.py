@@ -241,9 +241,19 @@ class DockerRuntimeExecutor:
 
             duration_ms = self.elapsed_ms(started)
             exit_code = self.extract_exit_code(wait_result)
-            stdout = self.read_logs(container, stdout=True, stderr=False)
             stderr = self.read_logs(container, stdout=False, stderr=True)
             logs_ref = self.write_logs(spec.invocation_id, stderr)
+            if self.was_oom_killed(container, invocation_id=spec.invocation_id):
+                return RuntimeExecutionResult.failed(
+                    "MemoryLimitExceeded",
+                    f"Runtime exceeded {spec.memory_limit_mb} MiB memory limit",
+                    duration_ms=duration_ms,
+                    logs_ref=logs_ref,
+                    container_id=getattr(container, "id", None),
+                    exit_code=exit_code,
+                )
+
+            stdout = self.read_logs(container, stdout=True, stderr=False)
             return self.parse_runtime_output(
                 invocation_id=spec.invocation_id,
                 stdout=stdout,
@@ -321,6 +331,20 @@ class DockerRuntimeExecutor:
                 invocation_id,
                 exc_info=True,
             )
+
+    @staticmethod
+    def was_oom_killed(container: Any, *, invocation_id: UUID) -> bool:
+        try:
+            container.reload()
+            state = getattr(container, "attrs", {}).get("State", {})
+            return state.get("OOMKilled") is True
+        except Exception:
+            logger.warning(
+                "Failed to inspect runtime memory state for invocation %s",
+                invocation_id,
+                exc_info=True,
+            )
+            return False
 
     def build_environment(
         self,

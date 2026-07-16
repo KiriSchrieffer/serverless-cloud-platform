@@ -19,6 +19,7 @@ RETRYABLE_ERROR_TYPES = {
 
 NON_RETRYABLE_ERROR_TYPES = {
     "InvalidRuntimeOutput",
+    "MemoryLimitExceeded",
     "TimeoutError",
     "ValueError",
 }

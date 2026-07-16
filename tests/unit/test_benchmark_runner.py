@@ -1,15 +1,21 @@
 import io
 import zipfile
 
+import pytest
+
 from benchmarks.run_benchmark import (
     ApiClient,
     BenchmarkConfig,
     BenchmarkReport,
+    DEFAULT_JSON_OUTPUT_PATH,
+    DEFAULT_REPORT_PATH,
     InvocationSample,
+    active_worker_topology,
     encode_multipart,
     package_workload,
     render_markdown_report,
     summarize_samples,
+    validate_output_policy,
 )
 
 
@@ -52,6 +58,49 @@ def test_api_client_registers_and_logs_in_without_storing_password_in_config() -
             (200,),
         ),
     ]
+
+
+def test_active_worker_topology_excludes_stale_and_offline_workers() -> None:
+    topology = active_worker_topology(
+        [
+            {"status": "RUNNING", "stale": False, "max_concurrency": 2},
+            {"status": "BUSY", "stale": False, "max_concurrency": 4},
+            {"status": "RUNNING", "stale": True, "max_concurrency": 8},
+            {"status": "OFFLINE", "stale": False, "max_concurrency": 16},
+        ]
+    )
+
+    assert topology == {"active_worker_count": 2, "total_worker_concurrency": 6}
+
+
+def test_small_sample_cannot_overwrite_versioned_default_evidence(tmp_path) -> None:
+    config = BenchmarkConfig(
+        api_url="http://localhost:8000",
+        workload="noop",
+        function_name="bench-noop",
+        invocations=1,
+        concurrency=1,
+        payload={},
+        timeout_seconds=30,
+        memory_limit_mb=256,
+        cpu_limit=0.5,
+        poll_interval_seconds=0.25,
+        poll_timeout_seconds=120,
+        http_timeout_seconds=15,
+    )
+
+    with pytest.raises(SystemExit, match="Small-sample runs cannot overwrite"):
+        validate_output_policy(
+            config,
+            report_path=DEFAULT_REPORT_PATH,
+            json_output_path=DEFAULT_JSON_OUTPUT_PATH,
+        )
+
+    validate_output_policy(
+        config,
+        report_path=tmp_path / "smoke.md",
+        json_output_path=tmp_path / "smoke.json",
+    )
 
 
 def test_summarize_samples_calculates_rates_and_latency_percentiles() -> None:
@@ -165,11 +214,19 @@ def test_render_markdown_report_includes_metrics_and_failure_injection_command()
         config=config,
         summary=summarize_samples(samples, wall_duration_seconds=1.0),
         samples=samples,
+        environment={
+            "git_commit_sha": "abc123",
+            "git_worktree_clean": True,
+            "active_worker_count": 1,
+            "total_worker_concurrency": 2,
+        },
     )
 
     markdown = render_markdown_report(report)
 
     assert "# Benchmark Report" in markdown
     assert "- Workload: noop" in markdown
+    assert "- Commit SHA: abc123" in markdown
+    assert "- Git worktree clean: True" in markdown
     assert "| throughput_invocations_per_second | 1.0 |" in markdown
     assert "tests/failure_injection/test_worker_crash_recovery.py" in markdown

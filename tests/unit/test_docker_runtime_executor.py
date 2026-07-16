@@ -28,6 +28,7 @@ class FakeContainer:
         kill_error: Exception | None = None,
         logs_error: Exception | None = None,
         remove_error: Exception | None = None,
+        oom_killed: bool = False,
     ) -> None:
         self.id = "container-123"
         self.stdout = stdout
@@ -38,9 +39,11 @@ class FakeContainer:
         self.kill_error = kill_error
         self.logs_error = logs_error
         self.remove_error = remove_error
+        self.attrs = {"State": {"OOMKilled": oom_killed}}
         self.wait_timeout = None
         self.killed = False
         self.removed = False
+        self.reload_count = 0
 
     def wait(self, timeout: float):
         self.wait_timeout = timeout
@@ -68,6 +71,9 @@ class FakeContainer:
         self.removed = force
         if self.remove_error is not None:
             raise self.remove_error
+
+    def reload(self) -> None:
+        self.reload_count += 1
 
 
 class FakeContainers:
@@ -203,6 +209,33 @@ async def test_docker_runtime_executor_maps_runtime_failure(
     assert result.error_message == "bad input"
     assert result.exit_code == 1
     assert result.logs_ref is not None
+
+
+@pytest.mark.asyncio
+async def test_docker_runtime_executor_reports_container_oom_kill(
+    test_sessionmaker: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    package_path = tmp_path / "function.zip"
+    package_path.write_bytes(b"zip-content")
+    fake_container = FakeContainer(stdout=b"", status_code=137, oom_killed=True)
+    docker_client = FakeDockerClient(fake_container)
+
+    async with test_sessionmaker() as session:
+        invocation = await create_invocation(session, package_path=package_path)
+        result = await DockerRuntimeExecutor(
+            session,
+            docker_client=docker_client,
+            workspace_root=tmp_path,
+            storage_root=tmp_path / "storage",
+            clock=lambda: invocation.queued_at,
+        ).execute(make_task(invocation))
+
+    assert result.status == InvocationAttemptStatus.FAILED
+    assert result.error_type == "MemoryLimitExceeded"
+    assert result.error_message == "Runtime exceeded 256 MiB memory limit"
+    assert result.exit_code == 137
+    assert fake_container.reload_count == 1
 
 
 @pytest.mark.asyncio
