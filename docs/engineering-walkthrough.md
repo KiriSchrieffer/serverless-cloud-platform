@@ -16,6 +16,73 @@ durable dispatch, at-least-once processing, bounded retry, worker-crash
 recovery, and observable end-to-end behavior rather than production-scale
 multi-tenant isolation.
 
+## Five-Minute Demo
+
+This review path demonstrates the real API-to-container workflow without
+turning image-build time into presentation time.
+
+### Prepare Before the Demo
+
+From the repository root, start the complete stack and wait for the long-running
+services to become healthy. The `migrate` and `runtime-image` services are
+expected to exit successfully after their one-shot work completes.
+
+```bash
+docker compose up --build -d
+docker compose ps
+```
+
+Open `http://localhost:3000` in a browser. Keep this engineering walkthrough
+and the Dashboard visible in separate tabs.
+
+### Present the System
+
+**0:00-0:30 — Establish the scope.** Use the overview above: this is a
+local-first serverless execution platform focused on durable asynchronous
+dispatch, failure recovery, and constrained Docker execution. It does not claim
+production multi-tenant isolation.
+
+**0:30-1:15 — Trace the architecture.** Follow the README diagram from the API
+to the PostgreSQL invocation and outbox transaction, through the Redis Streams
+consumer group, into a Worker and a fresh Python runtime container. PostgreSQL
+is authoritative; Redis provides at-least-once delivery.
+
+**1:15-2:15 — Run a real invocation.** In a terminal, execute:
+
+```bash
+bash scripts/demo_invoke.sh
+```
+
+The script registers and authenticates a demo user, creates an immutable
+function version, invokes it, waits for a terminal state, and prints the result
+and captured function logs. Copy the printed invocation ID. The expected
+terminal state is `SUCCEEDED`, the result contains `hello Ada`, and the logs
+contain the invocation ID.
+
+**2:15-3:15 — Inspect observable state.** Sign in to the Dashboard with
+`demo@example.local` and `local-demo-password`. Paste the invocation ID into
+**Invocation Detail** to show its status, attempt count, payload, result, and
+logs. Refresh **Workers** and **Metrics** to show the active consumer, bounded
+concurrency, queue state, success rate, and latency summaries.
+
+**3:15-4:15 — Explain failure handling.** Use the consumer-aware recovery
+section below to explain why the platform reclaims only work owned by a stale
+consumer. Then use the timeout case study to show how a real GitHub Actions
+failure exposed transport-wrapped timeout exceptions and how cleanup was kept
+from overwriting the primary `TIMEOUT` result.
+
+**4:15-5:00 — Close with evidence and limits.** The release benchmark contains
+750 successful cold-container invocations across nine reproducible runs. The
+separate multi-Worker experiment verifies parallel consumption, but its noisy,
+single-host throughput is intentionally not presented as a linear-scaling or
+resume claim. End with the explicit limits in this document.
+
+After the demo, stop the stack without deleting its volumes:
+
+```bash
+docker compose down
+```
+
 ## End-to-End Invocation Path
 
 1. A client authenticates and calls the invocation API with an optional

@@ -11,7 +11,8 @@ engineering. FastAPI and PostgreSQL accept durable invocations, Redis Streams
 dispatches them to concurrent workers, Docker isolates Python handlers, and an
 authenticated React dashboard exposes the complete workflow.
 
-[Architecture](#architecture) · [Quick Start](#local-quick-start) ·
+[Architecture](#architecture) · [Five-Minute Demo](docs/engineering-walkthrough.md#five-minute-demo) ·
+[Quick Start](#local-quick-start) ·
 [Release Benchmark](#release-benchmark) · [Worker Scaling](#exploratory-worker-scaling) ·
 [v1.0.0](https://github.com/KiriSchrieffer/serverless-cloud-platform/releases/tag/v1.0.0) ·
 [Engineering Walkthrough](docs/engineering-walkthrough.md) ·
