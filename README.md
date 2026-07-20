@@ -12,7 +12,7 @@ dispatches them to concurrent workers, Docker isolates Python handlers, and an
 authenticated React dashboard exposes the complete workflow.
 
 [Architecture](#architecture) · [Quick Start](#local-quick-start) ·
-[Release Benchmark](#release-benchmark) ·
+[Release Benchmark](#release-benchmark) · [Worker Scaling](#exploratory-worker-scaling) ·
 [v1.0.0](https://github.com/KiriSchrieffer/serverless-cloud-platform/releases/tag/v1.0.0) ·
 [Engineering Walkthrough](docs/engineering-walkthrough.md) ·
 [Design Notes](docs/design.md) · [Threat Model](docs/threat-model.md)
@@ -237,6 +237,36 @@ runtime-image metadata, runs no-op, sleep, and CPU-bound scenarios three times
 each, preserves every raw JSON run, and generates median results in
 `docs/benchmark-release-report.md`. Small samples cannot overwrite the tracked
 default benchmark report; use explicit temporary output paths for smoke runs.
+
+### Exploratory Worker Scaling
+
+A separate clean-commit experiment compared one, two, and four workers using
+the same no-op workload, 10 API clients, cold containers, one unmeasured warm-up,
+and three measured 100-invocation runs per topology. PostgreSQL and Redis state
+were recreated for every worker count.
+
+| Workers | Total worker concurrency | Success | Median throughput | Speedup vs. 1 worker | Median p95 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 2 | 300/300 | 2.95/sec | 1.00x | 3831.95 ms |
+| 2 | 4 | 300/300 | 3.03/sec | 1.03x | 4300.71 ms |
+| 4 | 8 | 300/300 | 6.17/sec | 2.09x | 2004.16 ms |
+
+All 900 measured invocations succeeded, verifying that multiple workers consume
+from the same Redis group correctly. Scaling was sublinear and noisy: throughput
+CV reached 43.56% at two workers because every invocation competed for one host
+and one Docker Desktop daemon. Treat this as exploratory capacity evidence, not
+as a production scalability or resume claim.
+
+See `docs/benchmark-worker-scaling-report.md` and
+`benchmarks/results/scaling/20260720-114614/` for methodology, medians, warm-up
+records, aggregate JSON, and all nine measured raw runs. Regenerate the audited
+aggregate from those files with:
+
+```bash
+python3 -m benchmarks.aggregate_scaling_results \
+  benchmarks/results/scaling/20260720-114614 \
+  --fresh-state-per-topology
+```
 
 Additional workloads:
 

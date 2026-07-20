@@ -152,7 +152,7 @@ aggregation are retained under `benchmarks/results/release/` and
 
 ## Verification Strategy
 
-The repository currently contains 125 collected tests across four layers:
+The repository currently contains 128 collected tests across four layers:
 
 - Fast unit and failure-injection tests for API, outbox, worker, retry,
   recovery, runtime protocol, rate limiting, metrics, and benchmark logic.
@@ -170,17 +170,30 @@ drift checks, the frontend build, image builds, and the Compose stack.
 - Docker restrictions reduce risk but are not a security boundary against
   hostile multi-tenant code.
 - Every invocation is cold; there is no warm-container pool.
-- Workers use bounded concurrency, but the release benchmark does not measure
-  horizontal scaling across worker counts.
+- Workers use bounded concurrency. The release benchmark remains a single-worker
+  correctness baseline; the separate scaling experiment is exploratory and
+  single-host only.
 - The project is local-first and does not claim a production AWS or Kubernetes
   deployment.
 - Exactly-once execution, API keys, refresh tokens, password recovery, and
   production secret management are outside the v1.0.0 scope.
 
-## Follow-Up Experiments
+## Worker Scaling Experiment
 
-The highest-value performance extension would measure one, two, and four
-workers under the same workloads and compare throughput, queue time, and p95
-latency. A separate warm-container experiment could then isolate container
-startup cost. Both should be reported as measured comparisons rather than new
-architecture claims.
+A follow-up experiment measured one, two, and four workers with fresh database
+and queue state per topology, a 20-invocation warm-up, and three measured
+100-invocation no-op runs. All 900 measured invocations succeeded. Median
+throughput was 2.95/s, 3.03/s, and 6.17/s respectively, so four workers achieved
+a 2.09x speedup over one worker rather than linear 4x scaling.
+
+The result also exposed substantial host-level variance: throughput CV reached
+43.56% at two workers, and later runs showed higher container execution latency
+without retries, worker errors, or leaked containers. This verifies parallel
+consumer behavior and a capacity increase at four workers, but it is not strong
+enough for a production scaling claim or a new resume metric. The complete
+methodology and raw evidence are in `docs/benchmark-worker-scaling-report.md`
+and `benchmarks/results/scaling/20260720-114614/`.
+
+A future warm-container experiment could isolate Docker startup cost from
+worker scheduling. A controlled multi-host environment would be required for a
+stronger horizontal-scaling claim.

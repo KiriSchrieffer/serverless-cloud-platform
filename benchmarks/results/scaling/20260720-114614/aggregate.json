@@ -1,0 +1,314 @@
+{
+  "generated_at": "2026-07-20T12:21:45Z",
+  "source_commit_sha": "118320fcd8a04377eccb8f170857a11ba175e02b",
+  "all_source_worktrees_clean": true,
+  "environment": {
+    "host": "192.168.1.24",
+    "operating_system": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "cpu_model": "Apple M5",
+    "logical_cpu_count": 10,
+    "memory_bytes": 25769803776,
+    "docker_server_version": "29.6.1",
+    "runtime_image_id": "sha256:70a72b291814ac86cae8008b12e9089ab137a6f09e59d78ec5a31abc4ae9c959",
+    "execution_mode": "cold container per invocation"
+  },
+  "methodology": {
+    "fresh_state_per_topology": true,
+    "warmup_invocations_per_topology": 20,
+    "measured_invocations_per_run": 100,
+    "repetitions_per_topology": 3,
+    "workload": "noop",
+    "client_concurrency": 10,
+    "timeout_seconds": 30,
+    "memory_limit_mb": 256,
+    "cpu_limit": 0.5
+  },
+  "total_measured_invocations": 900,
+  "total_succeeded_invocations": 900,
+  "all_runs_succeeded": true,
+  "workers": [
+    {
+      "worker_count": 1,
+      "total_worker_concurrency": 2,
+      "repetitions": 3,
+      "measured_invocations": 300,
+      "status_counts": {
+        "SUCCEEDED": 300
+      },
+      "median_summary": {
+        "throughput_invocations_per_second": 2.95,
+        "success_rate": 1.0,
+        "error_rate": 0.0,
+        "timeout_rate": 0.0,
+        "p50_latency_ms": 3223.65,
+        "p95_latency_ms": 3831.95,
+        "p99_latency_ms": 4041.01,
+        "average_queue_latency_ms": 2460.52,
+        "average_execution_latency_ms": 604.36,
+        "average_accept_latency_ms": 33.16
+      },
+      "throughput_range": {
+        "minimum": 2.81,
+        "maximum": 3.01
+      },
+      "throughput_cv_percent": 2.87,
+      "warmup_path": "benchmarks/results/scaling/20260720-114614/worker-1-warmup.json",
+      "runs": [
+        {
+          "path": "benchmarks/results/scaling/20260720-114614/worker-1-run-1.json",
+          "generated_at": "2026-07-20T11:46:51Z",
+          "wall_duration_seconds": 35.626,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 2.81,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3441.69,
+            "p95_latency_ms": 4689.04,
+            "p99_latency_ms": 4853.12,
+            "average_queue_latency_ms": 2629.23,
+            "average_execution_latency_ms": 629.71,
+            "average_accept_latency_ms": 36.84
+          }
+        },
+        {
+          "path": "benchmarks/results/scaling/20260720-114614/worker-1-run-2.json",
+          "generated_at": "2026-07-20T11:47:25Z",
+          "wall_duration_seconds": 33.251,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 3.01,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3183.48,
+            "p95_latency_ms": 3717.26,
+            "p99_latency_ms": 3964.93,
+            "average_queue_latency_ms": 2423.35,
+            "average_execution_latency_ms": 593.18,
+            "average_accept_latency_ms": 31.34
+          }
+        },
+        {
+          "path": "benchmarks/results/scaling/20260720-114614/worker-1-run-3.json",
+          "generated_at": "2026-07-20T11:48:00Z",
+          "wall_duration_seconds": 33.904,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 2.95,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3223.65,
+            "p95_latency_ms": 3831.95,
+            "p99_latency_ms": 4041.01,
+            "average_queue_latency_ms": 2460.52,
+            "average_execution_latency_ms": 604.36,
+            "average_accept_latency_ms": 33.16
+          }
+        }
+      ],
+      "throughput_speedup_vs_one_worker": 1.0,
+      "throughput_efficiency_vs_one_worker": 1.0
+    },
+    {
+      "worker_count": 2,
+      "total_worker_concurrency": 4,
+      "repetitions": 3,
+      "measured_invocations": 300,
+      "status_counts": {
+        "SUCCEEDED": 300
+      },
+      "median_summary": {
+        "throughput_invocations_per_second": 3.03,
+        "success_rate": 1.0,
+        "error_rate": 0.0,
+        "timeout_rate": 0.0,
+        "p50_latency_ms": 3110.91,
+        "p95_latency_ms": 4300.71,
+        "p99_latency_ms": 4940.26,
+        "average_queue_latency_ms": 1760.65,
+        "average_execution_latency_ms": 1161.31,
+        "average_accept_latency_ms": 82.14
+      },
+      "throughput_range": {
+        "minimum": 1.42,
+        "maximum": 4.66
+      },
+      "throughput_cv_percent": 43.56,
+      "warmup_path": "benchmarks/results/scaling/20260720-114614/worker-2-warmup.json",
+      "runs": [
+        {
+          "path": "benchmarks/results/scaling/20260720-114614/worker-2-run-1.json",
+          "generated_at": "2026-07-20T11:50:30Z",
+          "wall_duration_seconds": 21.467,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 4.66,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 2104.66,
+            "p95_latency_ms": 2733.35,
+            "p99_latency_ms": 2879.45,
+            "average_queue_latency_ms": 1123.45,
+            "average_execution_latency_ms": 769.4,
+            "average_accept_latency_ms": 46.92
+          }
+        },
+        {
+          "path": "benchmarks/results/scaling/20260720-114614/worker-2-run-2.json",
+          "generated_at": "2026-07-20T11:51:05Z",
+          "wall_duration_seconds": 33.006,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 3.03,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 3110.91,
+            "p95_latency_ms": 4300.71,
+            "p99_latency_ms": 4940.26,
+            "average_queue_latency_ms": 1760.65,
+            "average_execution_latency_ms": 1161.31,
+            "average_accept_latency_ms": 82.14
+          }
+        },
+        {
+          "path": "benchmarks/results/scaling/20260720-114614/worker-2-run-3.json",
+          "generated_at": "2026-07-20T11:52:18Z",
+          "wall_duration_seconds": 70.335,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 1.42,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 6335.15,
+            "p95_latency_ms": 10444.45,
+            "p99_latency_ms": 11626.67,
+            "average_queue_latency_ms": 3498.19,
+            "average_execution_latency_ms": 2572.46,
+            "average_accept_latency_ms": 375.12
+          }
+        }
+      ],
+      "throughput_speedup_vs_one_worker": 1.03,
+      "throughput_efficiency_vs_one_worker": 0.51
+    },
+    {
+      "worker_count": 4,
+      "total_worker_concurrency": 8,
+      "repetitions": 3,
+      "measured_invocations": 300,
+      "status_counts": {
+        "SUCCEEDED": 300
+      },
+      "median_summary": {
+        "throughput_invocations_per_second": 6.17,
+        "success_rate": 1.0,
+        "error_rate": 0.0,
+        "timeout_rate": 0.0,
+        "p50_latency_ms": 1562.96,
+        "p95_latency_ms": 2004.16,
+        "p99_latency_ms": 2282.91,
+        "average_queue_latency_ms": 417.28,
+        "average_execution_latency_ms": 948.56,
+        "average_accept_latency_ms": 62.4
+      },
+      "throughput_range": {
+        "minimum": 3.66,
+        "maximum": 6.86
+      },
+      "throughput_cv_percent": 24.72,
+      "warmup_path": "benchmarks/results/scaling/20260720-114614/worker-4-warmup.json",
+      "runs": [
+        {
+          "path": "benchmarks/results/scaling/20260720-114614/worker-4-run-1.json",
+          "generated_at": "2026-07-20T12:02:10Z",
+          "wall_duration_seconds": 14.567,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 6.86,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 1391.81,
+            "p95_latency_ms": 1786.0,
+            "p99_latency_ms": 2032.56,
+            "average_queue_latency_ms": 385.02,
+            "average_execution_latency_ms": 824.27,
+            "average_accept_latency_ms": 57.91
+          }
+        },
+        {
+          "path": "benchmarks/results/scaling/20260720-114614/worker-4-run-2.json",
+          "generated_at": "2026-07-20T12:02:28Z",
+          "wall_duration_seconds": 16.212,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 6.17,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 1562.96,
+            "p95_latency_ms": 2004.16,
+            "p99_latency_ms": 2282.91,
+            "average_queue_latency_ms": 417.28,
+            "average_execution_latency_ms": 948.56,
+            "average_accept_latency_ms": 62.4
+          }
+        },
+        {
+          "path": "benchmarks/results/scaling/20260720-114614/worker-4-run-3.json",
+          "generated_at": "2026-07-20T12:02:57Z",
+          "wall_duration_seconds": 27.299,
+          "summary": {
+            "total_invocations": 100,
+            "status_counts": {
+              "SUCCEEDED": 100
+            },
+            "throughput_invocations_per_second": 3.66,
+            "success_rate": 1.0,
+            "error_rate": 0.0,
+            "timeout_rate": 0.0,
+            "p50_latency_ms": 2480.19,
+            "p95_latency_ms": 3724.27,
+            "p99_latency_ms": 4802.6,
+            "average_queue_latency_ms": 686.14,
+            "average_execution_latency_ms": 1574.14,
+            "average_accept_latency_ms": 111.65
+          }
+        }
+      ],
+      "throughput_speedup_vs_one_worker": 2.09,
+      "throughput_efficiency_vs_one_worker": 0.52
+    }
+  ]
+}

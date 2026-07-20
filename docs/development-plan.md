@@ -180,3 +180,10 @@ Completion evidence:
 - `docs/benchmark-release-report.md` records the environment and aggregate
   results. `benchmarks/results/release/20260716-013335/` contains all nine raw
   JSON files and `aggregate.json`.
+- A separate clean-commit worker-count comparison completed three measured
+  100-invocation runs at one, two, and four workers with 900/900 successes.
+  Median throughput was 2.95/s, 3.03/s, and 6.17/s, but throughput CV reached
+  43.56% at two workers. It is retained as exploratory single-host evidence,
+  not a linear-scaling or resume claim, in
+  `docs/benchmark-worker-scaling-report.md` and
+  `benchmarks/results/scaling/20260720-114614/`.
