@@ -1,6 +1,7 @@
 PYTHON ?= python3
+PIP_TOOLS_VERSION ?= 7.6.0
 
-.PHONY: api worker frontend test quality integration docker-smoke e2e benchmark release-benchmark runtime-image compose-up compose-down
+.PHONY: api worker frontend test quality integration docker-smoke e2e benchmark release-benchmark dependency-lock runtime-image compose-up compose-down
 
 api:
 	uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
@@ -33,6 +34,9 @@ benchmark:
 
 release-benchmark:
 	$(PYTHON) -m benchmarks.run_release_suite
+
+dependency-lock:
+	docker run --rm --user "$(shell id -u):$(shell id -g)" --env HOME=/tmp -v "$(CURDIR):/app" -w /app python:3.11-slim sh -c 'python -m pip install --quiet pip-tools==$(PIP_TOOLS_VERSION) && python -m piptools compile --strip-extras --extra=test --extra=worker --extra=dev --output-file=requirements/constraints.txt pyproject.toml'
 
 runtime-image:
 	docker build -t serverless-python311-runtime:latest -f runtime/python311/Dockerfile .

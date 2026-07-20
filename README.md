@@ -14,6 +14,7 @@ authenticated React dashboard exposes the complete workflow.
 [Architecture](#architecture) · [Quick Start](#local-quick-start) ·
 [Release Benchmark](#release-benchmark) ·
 [v1.0.0](https://github.com/KiriSchrieffer/serverless-cloud-platform/releases/tag/v1.0.0) ·
+[Engineering Walkthrough](docs/engineering-walkthrough.md) ·
 [Design Notes](docs/design.md) · [Threat Model](docs/threat-model.md)
 
 > **Audited release evidence:** 750 cold-container invocations across nine
@@ -71,6 +72,7 @@ scripts/       Demo and developer helper scripts
 tests/         Unit and failure-injection tests
 benchmarks/    Benchmark runner and workload functions
 examples/      Example user functions
+requirements/  Python 3.11 dependency constraints shared by CI and images
 storage/       Local package, result, and log storage
 docs/          Design notes, threat model, benchmark report
 ```
@@ -273,7 +275,16 @@ Install local test dependencies:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -e ".[test,worker,dev]"
+.venv/bin/python -m pip install --constraint requirements/constraints.txt -e ".[test,worker,dev]"
+```
+
+`requirements/constraints.txt` is generated under Python 3.11 and pins the
+complete backend, worker, test, and development dependency graph used by CI and
+the application images. After intentionally changing dependencies in
+`pyproject.toml`, regenerate it with:
+
+```bash
+make dependency-lock
 ```
 
 Run the test suite:

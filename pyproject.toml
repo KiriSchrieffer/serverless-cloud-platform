@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools==80.9.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "serverless-cloud-platform"
-version = "0.1.0"
+version = "1.0.0"
 description = "Educational Lambda-inspired serverless cloud platform"
 requires-python = ">=3.11"
 dependencies = [
