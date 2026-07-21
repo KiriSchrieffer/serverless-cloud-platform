@@ -25,12 +25,12 @@ The runner will:
 - upload a new function version
 - invoke the function concurrently
 - poll each invocation until terminal status
-- write `docs/benchmark-report.md`
-- write raw JSON to `benchmarks/results/latest.json`
+- write an unversioned local report to `docs/benchmark-report.md`
+- write unversioned raw JSON to `benchmarks/results/latest.json`
 
-Runs with fewer than 20 invocations must use explicit `--report-path` and
-`--json-output-path` arguments, so a one-request smoke test cannot overwrite
-tracked performance evidence.
+The two default output paths are ignored by Git. Runs with fewer than 20
+invocations must use explicit `--report-path` and `--json-output-path`
+arguments, so smoke output cannot be mistaken for a standard comparison run.
 
 ## Release-candidate suite
 

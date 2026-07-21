@@ -142,6 +142,9 @@ Expected terminal state is `SUCCEEDED`, with a result similar to:
 
 ## Useful API Calls
 
+<details>
+<summary>Show authenticated curl examples</summary>
+
 Register and obtain a local access token:
 
 ```bash
@@ -189,6 +192,8 @@ curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:8000/workers
 curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:8000/metrics/summary
 ```
 
+</details>
+
 ## Release Benchmark
 
 Run a real local benchmark after `docker compose up --build` is running:
@@ -224,8 +229,8 @@ both queue delay and cold-container startup.
 
 See `docs/benchmark-release-report.md` for the generated report and
 `benchmarks/results/release/20260716-013335/` for the aggregate plus all nine raw
-JSON runs. Earlier single-run files remain development artifacts and are not
-used as release or resume evidence.
+JSON runs. Ad hoc benchmark output remains unversioned; only the audited release
+and scaling datasets are retained as public evidence.
 
 For release-candidate evidence, start from a clean, committed worktree and run:
 
@@ -236,8 +241,8 @@ make release-benchmark
 The release suite refuses a dirty worktree, records the commit, host, Docker and
 runtime-image metadata, runs no-op, sleep, and CPU-bound scenarios three times
 each, preserves every raw JSON run, and generates median results in
-`docs/benchmark-release-report.md`. Small samples cannot overwrite the tracked
-default benchmark report; use explicit temporary output paths for smoke runs.
+`docs/benchmark-release-report.md`. Small samples cannot use the default output
+paths; use explicit temporary output paths for smoke runs.
 
 ### Exploratory Worker Scaling
 
@@ -302,6 +307,9 @@ python3 -m pytest tests/failure_injection/test_worker_crash_recovery.py
 
 ## Development Checks
 
+<details>
+<summary>Show installation, test, and integration commands</summary>
+
 Install local test dependencies:
 
 ```bash
@@ -362,6 +370,8 @@ Current test coverage includes:
 - workers and metrics APIs
 - benchmark runner calculations
 - worker crash failure injection
+
+</details>
 
 ## Current Limits
 

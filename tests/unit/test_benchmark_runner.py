@@ -73,7 +73,7 @@ def test_active_worker_topology_excludes_stale_and_offline_workers() -> None:
     assert topology == {"active_worker_count": 2, "total_worker_concurrency": 6}
 
 
-def test_small_sample_cannot_overwrite_versioned_default_evidence(tmp_path) -> None:
+def test_small_sample_cannot_use_default_output_paths(tmp_path) -> None:
     config = BenchmarkConfig(
         api_url="http://localhost:8000",
         workload="noop",
@@ -89,7 +89,7 @@ def test_small_sample_cannot_overwrite_versioned_default_evidence(tmp_path) -> N
         http_timeout_seconds=15,
     )
 
-    with pytest.raises(SystemExit, match="Small-sample runs cannot overwrite"):
+    with pytest.raises(SystemExit, match="Small-sample runs cannot use"):
         validate_output_policy(
             config,
             report_path=DEFAULT_REPORT_PATH,

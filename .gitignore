@@ -13,6 +13,10 @@ dist/
 frontend/dist/
 .vite/
 
+# Local ad hoc benchmark output
+docs/benchmark-report.md
+benchmarks/results/latest.json
+
 storage/packages/*
 !storage/packages/.gitkeep
 storage/results/*

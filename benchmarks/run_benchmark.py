@@ -258,13 +258,13 @@ def validate_output_policy(
 ) -> None:
     if config.invocations >= 20:
         return
-    uses_versioned_defaults = (
+    uses_default_outputs = (
         report_path.resolve() == DEFAULT_REPORT_PATH.resolve()
         or json_output_path.resolve() == DEFAULT_JSON_OUTPUT_PATH.resolve()
     )
-    if uses_versioned_defaults:
+    if uses_default_outputs:
         raise SystemExit(
-            "Small-sample runs cannot overwrite versioned benchmark evidence; "
+            "Small-sample runs cannot use the default benchmark output paths; "
             "provide explicit --report-path and --json-output-path"
         )
 
